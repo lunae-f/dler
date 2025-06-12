@@ -5,7 +5,7 @@ FROM python:3.12-slim
 RUN apt-get update && apt-get install -y ffmpeg
 
 # yt-dlp と Flask をインストール
-RUN pip install --no-cache-dir yt-dlp Flask
+RUN pip install --no-cache-dir yt-dlp Flask gunicorn
 
 # 作業ディレクトリを作成・設定
 WORKDIR /app
@@ -17,4 +17,4 @@ COPY . .
 RUN mkdir /app/downloads
 
 # コンテナ起動時にAPIサーバーを実行
-CMD ["flask", "run", "--host=0.0.0.0"]
+CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:5000", "app:app"]
