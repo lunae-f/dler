@@ -5,4 +5,4 @@ FROM nginx:alpine
 RUN rm /etc/nginx/conf.d/default.conf
 
 # カスタム設定ファイルをコピー
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY nginx/nginx.conf /etc/nginx/conf.d/default.conf
