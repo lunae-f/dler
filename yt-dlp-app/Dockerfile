@@ -18,3 +18,5 @@ RUN mkdir /app/downloads
 
 # コンテナ起動時にAPIサーバーを実行
 CMD ["flask", "run", "--host=0.0.0.0"]
+
+
