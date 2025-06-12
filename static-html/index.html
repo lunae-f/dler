@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>yt-dlp Web UI</title>
+    <style>
+        body { font-family: sans-serif; max-width: 600px; margin: auto; padding: 2em; }
+        input { width: 100%; padding: 8px; margin-bottom: 1em; }
+        button { padding: 10px 15px; }
+        #status { margin-top: 1em; }
+        #result { margin-top: 1em; padding: 1em; background-color: #f0f0f0; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>Video Downloader</h1>
+    <form id="download-form">
+        <input type="text" id="video-url" placeholder="YouTubeなどのURLを入力" required>
+        <button type="submit">ダウンロード</button>
+    </form>
+
+    <div id="status"></div>
+    <div id="result" style="display:none;">
+        <p><strong>ダウンロード準備完了:</strong></p>
+        <a id="download-link" href="#"></a>
+    </div>
+
+    <script>
+        const form = document.getElementById('download-form');
+        const videoUrlInput = document.getElementById('video-url');
+        const statusDiv = document.getElementById('status');
+        const resultDiv = document.getElementById('result');
+        const downloadLink = document.getElementById('download-link');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault(); // フォームのデフォルト送信をキャンセル
+            
+            const url = videoUrlInput.value;
+            statusDiv.textContent = 'ダウンロード処理中... しばらくお待ちください。';
+            resultDiv.style.display = 'none';
+
+            try {
+                const response = await fetch('/api/download', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ url: url }),
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    statusDiv.textContent = '完了！以下のリンクをクリックしてダウンロードしてください。';
+                    downloadLink.href = data.download_url; // APIから返されたURLを設定
+                    downloadLink.textContent = data.title || 'ダウンロードファイル'; // 動画タイトルを表示
+                    downloadLink.setAttribute('download', ''); // download属性を追加
+                    resultDiv.style.display = 'block';
+                } else {
+                    statusDiv.textContent = `エラー: ${data.error}`;
+                }
+
+            } catch (error) {
+                statusDiv.textContent = `通信エラーが発生しました: ${error}`;
+            }
+        });
+    </script>
+</body>
+</html>
