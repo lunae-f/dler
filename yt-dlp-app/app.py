@@ -7,40 +7,46 @@ from yt_dlp import YoutubeDL
 app = Flask(__name__)
 
 DOWNLOAD_DIR = '/app/downloads'
+if not os.path.exists(DOWNLOAD_DIR):
+    os.makedirs(DOWNLOAD_DIR)
 
-@app.route('/api/download', methods=['POST']) # パスを/api/..に変更
+@app.route('/api/download', methods=['POST'])
 def download_video():
-    url = request.json.get('url')
+    data = request.get_json()
+    url = data.get('url')
     if not url:
         return jsonify({'error': 'URL is required'}), 400
 
     try:
+        # yt-dlpのオプション（最高品質設定）
         ydl_opts = {
-            # 保存先のテンプレート。ファイル名はyt-dlpに任せる
             'outtmpl': os.path.join(DOWNLOAD_DIR, '%(title)s.%(ext)s'),
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'format': 'bestvideo*+bestaudio/best',
         }
+        
         with YoutubeDL(ydl_opts) as ydl:
+            # ダウンロードと情報取得を同時に行う
             info = ydl.extract_info(url, download=True)
             
-            # ダウンロードされたファイルのフルパスを取得
+            # プレイリストの場合は最初の動画情報を利用する
+            if 'entries' in info:
+                info = info['entries'][0]
+            
+            # ダウンロードされたファイル名を特定
             filename = ydl.prepare_filename(info)
-            
-            # フルパスからファイル名だけを抽出
             base_filename = os.path.basename(filename)
-            
-            # フロントエンドがアクセスするためのURLパスを生成して返す
             download_url = f"/downloads/{base_filename}"
             
             return jsonify({
-                'message': 'Download complete!', 
+                'message': 'Download complete!',
                 'download_url': download_url,
-                'title': info.get('title', 'N/A')
+                'title': info.get('title', 'N/A'),
             })
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    # Flaskのデフォルトポート5000で実行
-    app.run(host='0.0.0.0')
+    app.run(host='0.0.0.0', port=5000)
