@@ -2,6 +2,7 @@
 import os
 import asyncio
 import uuid
+import json
 from contextlib import asynccontextmanager
 from typing import Dict, Any, Optional, List
 
@@ -28,7 +29,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="yt-dlp API Server",
     description="A server to download videos using yt-dlp with parallel processing capabilities.",
-    version="1.0.0",
+    version="1.1.0",
     lifespan=lifespan
 )
 
@@ -62,24 +63,22 @@ async def run_yt_dlp(task_id: str, url: str, options: YtDlpOptions):
     tasks[task_id]["details"] = f"Starting download for {url}"
 
     # yt-dlpのコマンドを構築
-    # セキュリティのため、引数は慎重に扱う
     cmd = [
         "yt-dlp",
         "--no-progress",
         "--no-warnings",
-        # JSON形式で進捗や結果を出力させ、後からパースする
-        "--print", "json",
+        # ダウンロード完了後にメタデータをJSON形式で出力
+        "--print-json",
     ]
 
     # オプションを追加
     if options.audio_only:
+        # -x, --extract-audio
         cmd.extend(["-f", "bestaudio/best", "-x"])
     elif options.format:
         cmd.extend(["-f", options.format])
 
-    # 出力先テンプレート
     cmd.extend(["-o", options.output_template])
-    
     cmd.append(url)
 
     # サブプロセスを非同期で実行
@@ -90,14 +89,24 @@ async def run_yt_dlp(task_id: str, url: str, options: YtDlpOptions):
     )
 
     stdout, stderr = await process.communicate()
-    
-    if process.returncode == 0:
+
+    # 出力をデコード
+    decoded_stdout = stdout.decode('utf-8', errors='ignore').strip()
+    decoded_stderr = stderr.decode('utf-8', errors='ignore').strip()
+
+    # 正常終了し、かつ標準出力に内容がある場合
+    if process.returncode == 0 and decoded_stdout:
         try:
-            # yt-dlpの最後の標準出力行はJSON情報
-            last_line = stdout.decode().strip().split('\n')[-1]
+            # プレイリストの場合、複数行のJSONが出力されることがあるため、最後の行を使用
+            last_line = decoded_stdout.split('\n')[-1]
             info = json.loads(last_line)
             
-            filepath = info.get("_filename") or f"{DOWNLOADS_DIR}/{info.get('title')}.{info.get('ext')}"
+            # yt-dlpが実際に保存したファイルパスを取得
+            filepath = info.get("_filename")
+            
+            if not filepath or not os.path.exists(filepath):
+                 raise FileNotFoundError(f"Could not find the downloaded file specified by yt-dlp: {filepath}")
+
             filename = os.path.basename(filepath)
 
             tasks[task_id]["status"] = "completed"
@@ -106,14 +115,20 @@ async def run_yt_dlp(task_id: str, url: str, options: YtDlpOptions):
                 "files": [filename],
                 "download_urls": [f"/downloads/{filename}"]
             }
-        except (json.JSONDecodeError, IndexError, KeyError) as e:
+        except (json.JSONDecodeError, IndexError, KeyError, FileNotFoundError) as e:
+            # パース失敗時やファイルが見つからない場合に詳細なエラーを出力
             tasks[task_id]["status"] = "error"
-            tasks[task_id]["details"] = f"Failed to parse yt-dlp output. Error: {str(e)}. Raw output: {stdout.decode()}"
-
+            tasks[task_id]["details"] = (
+                f"Failed to process yt-dlp output. Error: {str(e)}. "
+                f"STDOUT: {decoded_stdout} | STDERR: {decoded_stderr}"
+            )
     else:
+        # yt-dlpの実行が失敗した場合
         tasks[task_id]["status"] = "error"
-        tasks[task_id]["details"] = f"yt-dlp failed with return code {process.returncode}. Error: {stderr.decode()}"
-
+        tasks[task_id]["details"] = (
+            f"yt-dlp execution failed with return code {process.returncode}. "
+            f"STDOUT: {decoded_stdout} | STDERR: {decoded_stderr}"
+        )
 
 # --- APIエンドポイント ---
 @app.post("/api/v1/download", response_model=DownloadResponse, status_code=202)
@@ -129,10 +144,7 @@ async def create_download_task(
         "status": "pending",
         "details": "Task is waiting to be processed."
     }
-    
-    # yt-dlpの実行をバックグラウンドタスクとして追加
     background_tasks.add_task(run_yt_dlp, task_id, request.url, request.options)
-    
     return {"message": "Download task created successfully.", "task_id": task_id}
 
 
@@ -144,11 +156,9 @@ async def get_task_status(task_id: str = Path(..., description="The ID of the ta
     task = tasks.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
     return TaskStatusResponse(task_id=task_id, **task)
 
 # 静的ファイル配信のためのマウント
-# これにより /downloads/{filename} でファイルにアクセスできる
 app.mount("/downloads", StaticFiles(directory=DOWNLOADS_DIR), name="downloads")
 
 
@@ -157,6 +167,3 @@ async def root():
     return JSONResponse(
         content={"message": "Welcome to the yt-dlp API server. See /docs for API documentation."}
     )
-
-# yt-dlpからの出力をパースするためにjsonライブラリをインポート
-import json
