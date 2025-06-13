@@ -1,5 +1,5 @@
 # ステージ1: ビルド環境
-FROM python:3.12-slim as builder
+FROM python:3.13-slim as builder
 
 # OSパッケージの更新とビルドに必要なツールのインストール
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -16,8 +16,9 @@ RUN curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-stati
 
 # Pythonの依存関係をインストールするための準備
 WORKDIR /install
-COPY ./app/ /install/app/
 # requirements.txtを作成する代わりに直接インストール
+# FastAPIアプリケーションのコードより先にライブラリをインストールすることで、
+# アプリケーションコードの変更時にDockerのレイヤーキャッシュが効くようにする
 RUN pip install --no-cache-dir --prefix="/install" \
     "fastapi[all]" \
     "uvicorn" \
@@ -25,7 +26,7 @@ RUN pip install --no-cache-dir --prefix="/install" \
 
 
 # ステージ2: 本番環境
-FROM python:3.12-slim
+FROM python:3.13-slim
 
 # タイムゾーンをJSTに設定
 ENV TZ=Asia/Tokyo
@@ -46,7 +47,8 @@ WORKDIR /app
 COPY ./app/ .
 
 # サーバーを起動
-# 複数のリクエストを捌くため、ワーカー数を指定することが推奨される
-# (例: CPUコア数 * 2 + 1)
-# ここでは開発用に1ワーカーで起動
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+# 【重要】ワーカー数を1に設定。複数のワーカープロセスは、それぞれが独立したメモリ空間を持つため、
+# 現在のインメモリの`tasks`辞書では状態を共有できません。
+# これにより"Task not found"エラーが発生します。
+# 複数リクエストの並行処理には、Redisなどの外部データストアが必要です。
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
