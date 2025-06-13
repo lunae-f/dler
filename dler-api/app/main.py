@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="yt-dlp API Server",
     description="A server to download videos using yt-dlp with parallel processing capabilities.",
-    version="1.1.0",
+    version="1.2.0",
     lifespan=lifespan
 )
 
@@ -101,11 +101,23 @@ async def run_yt_dlp(task_id: str, url: str, options: YtDlpOptions):
             last_line = decoded_stdout.split('\n')[-1]
             info = json.loads(last_line)
             
-            # yt-dlpが実際に保存したファイルパスを取得
-            filepath = info.get("_filename")
+            # yt-dlpは後処理後（-xによる音声抽出など）に 'filepath' キーを提供する。これが最終的なファイルパス。
+            # 安全のため、フォールバックとして '_filename' も確認する。
+            filepath = info.get("filepath") or info.get("_filename")
             
-            if not filepath or not os.path.exists(filepath):
-                 raise FileNotFoundError(f"Could not find the downloaded file specified by yt-dlp: {filepath}")
+            if not filepath:
+                 raise KeyError("Could not determine the final filename from yt-dlp's JSON output.")
+
+            # ファイルがディスクに書き込まれるのを待つ (レースコンディション対策)
+            file_found = False
+            for _ in range(10):  # 最大5秒間、0.5秒ごとに確認
+                if os.path.exists(filepath):
+                    file_found = True
+                    break
+                await asyncio.sleep(0.5)
+
+            if not file_found:
+                 raise FileNotFoundError(f"Could not find the downloaded file specified by yt-dlp after waiting: {filepath}")
 
             filename = os.path.basename(filepath)
 
