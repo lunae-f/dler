@@ -1,0 +1,10 @@
+services:
+  dler-server:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./downloaded:/usr/local/apache2/htdocs/downloads:ro
+    ports:
+      - 8080:80
