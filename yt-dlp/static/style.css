@@ -61,17 +61,33 @@ button:hover {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    /* ★ 追加: リストアイテム自体のoverflowも管理 */
+    overflow: hidden;
 }
 
+/* ★★★★★ ここから修正 ★★★★★ */
 #tasks-list li .url {
-    word-break: break-all;
+    /* テキストがはみ出た場合に省略記号(...)を表示するための設定 */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    
+    /* 右側の要素との間に余白を確保 */
     margin-right: 20px;
+    
+    /* Flexアイテムとして、必要に応じて縮むように設定 */
+    flex-shrink: 1;
+    min-width: 0; /* flexアイテムが縮むために重要 */
 }
+/* ★★★★★ ここまで修正 ★★★★★ */
+
 
 #tasks-list li .status {
     font-weight: bold;
     min-width: 120px;
     text-align: right;
+    /* ★ 追加: ボタンが縮まないように設定 */
+    flex-shrink: 0;
 }
 
 .status.processing { color: #f39c12; }
