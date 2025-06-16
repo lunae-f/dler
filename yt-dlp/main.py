@@ -14,7 +14,7 @@ from worker import celery_app, download_video
 app = FastAPI(
     title="DLer API",
     description="yt-dlpで動画をダウンロードするAPI",
-    version="1.3.1"
+    version="1.4.0" # バージョン更新
 )
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -42,24 +42,16 @@ async def read_root():
     with open("static/index.html") as f:
         return HTMLResponse(content=f.read(), status_code=200)
 
-
-# ★★★★★ ここから修正 ★★★★★
 @app.get("/tasks/history", summary="過去10件のタスク履歴を取得")
 async def get_tasks_history():
-    """
-    Redisに保存されているタスク履歴から最新10件を取得します。
-    不正な形式のデータは無視して処理を続行します。
-    """
     tasks_json = redis_client.lrange("task_history", 0, 9)
     tasks = []
     for task_str in tasks_json:
         try:
-            # JSONの解析をtry-exceptブロックで囲む
             task_data = json.loads(task_str)
             if isinstance(task_data, dict) and "task_id" in task_data:
                 tasks.append(task_data)
         except json.JSONDecodeError:
-            # JSONとして不正なデータがあれば、コンソールに警告を出してスキップ
             print(f"Warning: Could not decode task from history: {task_str}")
             continue
 
@@ -82,7 +74,6 @@ async def get_tasks_history():
         detailed_tasks.append(full_details)
 
     return JSONResponse(content=detailed_tasks)
-# ★★★★★ ここまで修正 ★★★★★
 
 
 @app.post("/tasks", status_code=status.HTTP_202_ACCEPTED, summary="動画ダウンロードタスクを作成（キャッシュ確認付き）")
@@ -106,6 +97,7 @@ async def create_download_task(request: TaskRequest):
 
 def add_task_to_history(task_id: str, url: str):
     task_info = {"task_id": task_id, "url": url}
+    # 履歴に同じタスクIDが重複しないように、一度削除してから追加
     redis_client.lrem("task_history", 0, json.dumps(task_info))
     redis_client.lpush("task_history", json.dumps(task_info))
     redis_client.ltrim("task_history", 0, 99)
@@ -136,3 +128,49 @@ async def download_file(task_id: str):
         raise HTTPException(status_code=404, detail="File not found on the server.")
     return FileResponse(path=filepath, filename=original_filename, media_type='application/octet-stream')
 
+# ★★★★★ ここから追加 ★★★★★
+@app.delete("/tasks/{task_id}", status_code=status.HTTP_200_OK, summary="タスクと関連ファイルを削除")
+async def delete_task(task_id: str):
+    """
+    指定されたタスクIDに関連する物理ファイル、履歴、キャッシュを削除します。
+    """
+    task_result = AsyncResult(task_id, app=celery_app)
+
+    # 1. 物理ファイルを削除 (タスクが成功していた場合)
+    if task_result.successful():
+        filepath = task_result.result.get('filepath')
+        if filepath and os.path.exists(filepath):
+            try:
+                os.remove(filepath)
+            except OSError as e:
+                print(f"Error removing file {filepath}: {e}")
+
+    # 2. 履歴とキャッシュを削除
+    #    履歴からURLを見つけ出し、キャッシュも削除する
+    all_tasks_json = redis_client.lrange("task_history", 0, -1)
+    task_to_remove_json = None
+    url_to_remove = None
+    for task_str in all_tasks_json:
+        try:
+            task_data = json.loads(task_str)
+            if task_data.get("task_id") == task_id:
+                task_to_remove_json = task_str
+                url_to_remove = task_data.get("url")
+                break
+        except json.JSONDecodeError:
+            continue
+    
+    # 履歴から削除
+    if task_to_remove_json:
+        redis_client.lrem("task_history", 1, task_to_remove_json)
+
+    # キャッシュから削除
+    if url_to_remove:
+        normalized_url = normalize_youtube_url(url_to_remove)
+        redis_client.hdel("video_cache", normalized_url)
+
+    # 3. Celeryのバックエンドから結果を削除
+    task_result.forget()
+
+    return {"status": "deleted", "task_id": task_id}
+# ★★★★★ ここまで追加 ★★★★★

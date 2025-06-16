@@ -4,55 +4,68 @@ document.addEventListener('DOMContentLoaded', () => {
     const tasksList = document.getElementById('tasks-list');
     const pollingIntervals = new Map();
 
-    // ページ読み込み時に過去のタスクを読み込む
     async function loadInitialTasks() {
         try {
             const response = await fetch('/tasks/history');
-            if (!response.ok) {
-                throw new Error('タスク履歴の取得に失敗しました。');
-            }
+            if (!response.ok) throw new Error('タスク履歴の取得に失敗しました。');
             const tasks = await response.json();
-            tasksList.innerHTML = ''; // 一旦リストをクリア
-            for (const task of tasks) {
-                addTaskToList(task, false); // リストの末尾に追加
-            }
+            tasksList.innerHTML = '';
+            tasks.forEach(task => addTaskToList(task, false));
         } catch (error) {
             console.error(error);
         }
     }
 
-    // フォーム送信時の処理
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const url = urlInput.value;
         if (!url) return;
-
         try {
             const response = await fetch('/tasks', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ url }),
             });
-
             if (!response.ok) throw new Error('タスクの作成に失敗しました。');
-
             const data = await response.json();
-            
-            // ★★★★★ ここから修正 ★★★★★
-            // UI上の初期状態を「処理中」にするため、statusを'STARTED'として渡す
             addTaskToList({
                 task_id: data.task_id,
                 url: data.url,
                 status: 'STARTED'
             }, true);
-            // ★★★★★ ここまで修正 ★★★★★
-
             urlInput.value = '';
         } catch (error) {
             console.error(error);
             alert(error.message);
         }
     });
+
+    // ★★★★★ ここから追加 ★★★★★
+    // イベント委任を使って削除ボタンのクリックを処理
+    tasksList.addEventListener('click', async (e) => {
+        if (e.target.classList.contains('delete-btn')) {
+            const taskId = e.target.dataset.taskId;
+            if (!taskId || !confirm('このタスクとファイルを本当に削除しますか？')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/tasks/${taskId}`, {
+                    method: 'DELETE',
+                });
+
+                if (!response.ok) {
+                    throw new Error('削除に失敗しました。');
+                }
+                // UIから要素を削除
+                document.getElementById(`task-${taskId}`).remove();
+            } catch (error) {
+                console.error(error);
+                alert(error.message);
+            }
+        }
+    });
+    // ★★★★★ ここまで追加 ★★★★★
 
     function addTaskToList(task, prepend = false) {
         const listItem = document.createElement('li');
@@ -61,11 +74,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const urlHtml = task.url ? `<span class="url">${task.url}</span>` : '';
         listItem.innerHTML = `${urlHtml}<span class="status"></span>`;
         
-        if (prepend) {
-            tasksList.prepend(listItem);
-        } else {
-            tasksList.appendChild(listItem);
-        }
+        if (prepend) tasksList.prepend(listItem);
+        else tasksList.appendChild(listItem);
 
         updateTaskStatus(task);
         
@@ -76,17 +86,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function startPolling(taskId) {
         if (pollingIntervals.has(taskId)) return;
-
         const intervalId = setInterval(async () => {
             try {
                 const response = await fetch(`/tasks/${taskId}`);
+                if (!response.ok) throw new Error('Status check failed');
                 const data = await response.json();
                 updateTaskStatus(data);
             } catch (error) {
                 console.error(`タスク[${taskId}]の状態取得に失敗:`, error);
             }
         }, 3000);
-
         pollingIntervals.set(taskId, intervalId);
     }
 
@@ -97,24 +106,25 @@ document.addEventListener('DOMContentLoaded', () => {
         const statusElement = listItem.querySelector('.status');
         let isTaskFinished = false;
 
+        const deleteButtonHtml = `<button class="delete-btn" data-task-id="${task.task_id}">削除</button>`;
+
         switch (task.status) {
             case 'SUCCESS':
                 const downloadUrl = task.download_url;
                 const filename = task.details.original_filename || 'video.mp4';
                 statusElement.className = 'status success';
-                statusElement.innerHTML = `<a href="${downloadUrl}" class="download-link" download="${filename}">ダウンロード</a>`;
+                // ★ ボタンをdivで囲んで横並びにする
+                statusElement.innerHTML = `<div class="actions"><a href="${downloadUrl}" class="download-link" download="${filename}">ダウンロード</a>${deleteButtonHtml}</div>`;
                 
-                // URLを表示していた要素を探して、内容をファイル名に置き換える
                 const infoElement = listItem.querySelector('.url');
-                if (infoElement) {
-                    infoElement.textContent = filename;
-                }
+                if (infoElement) infoElement.textContent = filename;
 
                 isTaskFinished = true;
                 break;
             case 'FAILURE':
                 statusElement.className = 'status failure';
-                statusElement.textContent = '失敗';
+                // ★ 失敗時にも削除ボタンを追加
+                statusElement.innerHTML = `<div class="actions"><span>失敗</span>${deleteButtonHtml}</div>`;
                 isTaskFinished = true;
                 break;
             case 'PROCESSING':
