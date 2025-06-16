@@ -37,11 +37,15 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!response.ok) throw new Error('タスクの作成に失敗しました。');
 
             const data = await response.json();
+            
+            // ★★★★★ ここから修正 ★★★★★
+            // UI上の初期状態を「処理中」にするため、statusを'STARTED'として渡す
             addTaskToList({
                 task_id: data.task_id,
                 url: data.url,
-                status: 'PENDING'
-            }, true); // 新しいタスクはリストの先頭に追加
+                status: 'STARTED'
+            }, true);
+            // ★★★★★ ここまで修正 ★★★★★
 
             urlInput.value = '';
         } catch (error) {
