@@ -12,7 +12,7 @@ redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# ★★★★★ ここから追加 ★★★★★
+
 def normalize_youtube_url(url: str) -> str:
     """
     YouTubeのURLから追跡パラメータなどを削除し、'v'パラメータのみに正規化する。
@@ -27,10 +27,8 @@ def normalize_youtube_url(url: str) -> str:
              parsed_url.params, new_query_string, parsed_url.fragment)
         )
     return url
-# ★★★★★ ここまで追加 ★★★★★
 
 
-# ★ download_videoの引数を変更
 @celery_app.task(bind=True)
 def download_video(self: Task, original_url: str, normalized_url: str) -> dict:
     """
@@ -40,7 +38,10 @@ def download_video(self: Task, original_url: str, normalized_url: str) -> dict:
     
     ydl_opts = {
         'outtmpl': os.path.join(DOWNLOAD_DIR, f'{task_id}.%(ext)s'),
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        # ★★★★★ ここから修正 ★★★★★
+        # H.264(avc1)とAAC(mp4a)を最優先にし、利用できなければ最適なmp4をフォールバックとして選択
+        'format': 'bestvideo[vcodec*=avc1]+bestaudio[acodec*=mp4a]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        # ★★★★★ ここまで修正 ★★★★★
         'quiet': True,
         'no_warnings': True,
     }
@@ -52,7 +53,7 @@ def download_video(self: Task, original_url: str, normalized_url: str) -> dict:
             filepath = ydl.prepare_filename(info_dict)
             original_filename = f"{info_dict.get('title', task_id)}.{info_dict.get('ext', 'mp4')}"
 
-            # ★ キャッシュのキーには正規化されたURLを使用
+            # キャッシュのキーには正規化されたURLを使用
             redis_client.hset("video_cache", normalized_url, task_id)
 
             result_data = {
