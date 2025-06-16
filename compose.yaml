@@ -3,7 +3,7 @@ services:
     restart: unless-stopped
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: httpd/Dockerfile
     volumes:
       - ./downloaded:/usr/local/apache2/htdocs/downloaded:ro
     ports:
