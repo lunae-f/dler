@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, HttpUrl
 from celery.result import AsyncResult
-import redis # ★ redisライブラリをインポート
+import redis
 
 # worker.py からCeleryアプリケーションとタスクをインポート
 from worker import celery_app, download_video
@@ -14,22 +14,16 @@ from worker import celery_app, download_video
 app = FastAPI(
     title="DLer API",
     description="yt-dlpで動画をダウンロードするAPI",
-    version="1.1.0"
+    version="1.2.0"
 )
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# ★★★★★ ここから追加 ★★★★★
-# Redisクライアントの初期化
-# Docker環境の環境変数を読み込む
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
-# ★★★★★ ここまで追加 ★★★★★
-
 
 # --- Pydanticモデル ---
 class TaskRequest(BaseModel):
     url: HttpUrl
-
 
 # --- APIエンドポイント ---
 @app.get("/", response_class=HTMLResponse, summary="フロントエンドページを表示")
@@ -37,26 +31,19 @@ async def read_root():
     with open("static/index.html") as f:
         return HTMLResponse(content=f.read(), status_code=200)
 
-# ★★★★★ ここから追加 ★★★★★
 @app.get("/tasks/history", summary="過去10件のタスク履歴を取得")
 async def get_tasks_history():
-    """
-    Redisに保存されているタスク履歴から最新10件を取得します。
-    """
-    # Redisのリストから最新10件のタスク情報(JSON文字列)を取得
     tasks_json = redis_client.lrange("task_history", 0, 9)
     tasks = [json.loads(task_str) for task_str in tasks_json]
     
-    # 各タスクの最新の状態をCeleryから取得して追加
     detailed_tasks = []
     for task_info in tasks:
         task_id = task_info.get("task_id")
         task_result = AsyncResult(task_id, app=celery_app)
         
-        # get_task_status と同様のロジックで詳細情報を構築
         full_details = {
             "task_id": task_id,
-            "url": task_info.get("url"), # 保存しておいたURL
+            "url": task_info.get("url"),
             "status": task_result.status,
         }
         if task_result.successful():
@@ -68,29 +55,49 @@ async def get_tasks_history():
         detailed_tasks.append(full_details)
 
     return JSONResponse(content=detailed_tasks)
-# ★★★★★ ここまで追加 ★★★★★
 
-
-# ★★★★★ ここから修正 ★★★★★
-@app.post("/tasks", status_code=status.HTTP_202_ACCEPTED, summary="動画ダウンロードタスクを作成")
+# ★★★★★ ここから大幅に修正 ★★★★★
+@app.post("/tasks", status_code=status.HTTP_202_ACCEPTED, summary="動画ダウンロードタスクを作成（キャッシュ確認付き）")
 async def create_download_task(request: TaskRequest):
     """
-    タスクを作成し、その情報をRedisの履歴リストにも保存します。
+    タスクを作成します。もし過去に同じURLのダウンロードが成功していれば、
+    新しいタスクは作らずに過去のタスク情報を返します。
     """
-    task = download_video.delay(str(request.url))
-    
-    # Redisに保存するタスク情報を作成
-    task_info = {
-        "task_id": task.id,
-        "url": str(request.url)
-    }
-    # JSON文字列としてRedisリストの先頭に追加
-    redis_client.lpush("task_history", json.dumps(task_info))
-    # リストが長くなりすぎないように、100件までに制限
-    redis_client.ltrim("task_history", 0, 99)
+    url_str = str(request.url)
 
-    return {"task_id": task.id, "url": str(request.url)}
-# ★★★★★ ここまで修正 ★★★★★
+    # 1. キャッシュを確認
+    cached_task_id = redis_client.hget("video_cache", url_str)
+    if cached_task_id:
+        task_result = AsyncResult(cached_task_id, app=celery_app)
+        # 2. キャッシュされたタスクが有効か検証
+        if task_result.successful():
+            # ファイルが物理的に存在するか確認
+            filepath = task_result.result.get('filepath')
+            if filepath and os.path.exists(filepath):
+                # 3. 有効なキャッシュヒット！
+                # ユーザーの履歴リストにこのキャッシュされたタスクを追加
+                add_task_to_history(cached_task_id, url_str)
+                # 過去のタスクIDを返却
+                return {"task_id": cached_task_id, "url": url_str}
+
+    # 4. キャッシュがない、または無効な場合 (キャッシュミス)
+    # 新しいタスクを作成
+    task = download_video.delay(url_str)
+    # ユーザーの履歴リストに新しいタスクを追加
+    add_task_to_history(task.id, url_str)
+    
+    return {"task_id": task.id, "url": url_str}
+
+def add_task_to_history(task_id: str, url: str):
+    """
+    タスク情報を履歴リスト(Redis)の先頭に追加するヘルパー関数。
+    """
+    task_info = {"task_id": task_id, "url": url}
+    # 履歴に同じタスクIDが重複しないように、一度削除してから追加
+    redis_client.lrem("task_history", 0, json.dumps(task_info))
+    redis_client.lpush("task_history", json.dumps(task_info))
+    redis_client.ltrim("task_history", 0, 99)
+# ★★★★★ ここまで大幅に修正 ★★★★★
 
 
 @app.get("/tasks/{task_id}", summary="タスクの状態を取得")
@@ -100,10 +107,7 @@ async def get_task_status(task_id: str):
     status = task_result.status
     result = task_result.result if task_result.ready() else None
     
-    response_data = {
-        "task_id": task_id,
-        "status": status,
-    }
+    response_data = {"task_id": task_id, "status": status}
 
     if status == 'SUCCESS':
         response_data['details'] = result
