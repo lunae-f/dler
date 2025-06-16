@@ -26,7 +26,7 @@ services:
   # 2. バックグラウンドワーカー (Celery)
   worker:
     # APIサーバーと同じイメージを再利用
-    build: ./api
+    build: ./yt-dlp
     # コンテナ内で実行するコマンド
     command: celery -A worker.celery_app worker --loglevel=info
     # ローカルのコードとダウンロード用フォルダをマウント
