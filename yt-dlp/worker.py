@@ -1,33 +1,40 @@
 import os
-import json
 import redis
+from urllib.parse import urlparse, parse_qs, urlunparse, urlencode
 from celery import Celery, Task
 import yt_dlp
 
-# Docker Composeから渡される環境変数を読み込む
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
-# Celeryインスタンスの作成
-celery_app = Celery(
-    'tasks',
-    broker=REDIS_URL,
-    backend=REDIS_URL
-)
-
-# ★★★★★ ここから追加 ★★★★★
-# ワーカー内でもRedisクライアントを初期化
+celery_app = Celery('tasks', broker=REDIS_URL, backend=REDIS_URL)
 redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
-# ★★★★★ ここまで追加 ★★★★★
 
-# ダウンロードディレクトリの準備
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-
-@celery_app.task(bind=True)
-def download_video(self: Task, url: str) -> dict:
+# ★★★★★ ここから追加 ★★★★★
+def normalize_youtube_url(url: str) -> str:
     """
-    指定されたURLから動画をダウンロードし、成功時にキャッシュを作成するCeleryタスク。
+    YouTubeのURLから追跡パラメータなどを削除し、'v'パラメータのみに正規化する。
+    """
+    parsed_url = urlparse(url)
+    query_params = parse_qs(parsed_url.query)
+    if 'v' in query_params:
+        normalized_query = {'v': query_params['v'][0]}
+        new_query_string = urlencode(normalized_query)
+        return urlunparse(
+            (parsed_url.scheme, parsed_url.netloc, parsed_url.path, 
+             parsed_url.params, new_query_string, parsed_url.fragment)
+        )
+    return url
+# ★★★★★ ここまで追加 ★★★★★
+
+
+# ★ download_videoの引数を変更
+@celery_app.task(bind=True)
+def download_video(self: Task, original_url: str, normalized_url: str) -> dict:
+    """
+    指定されたURLから動画をダウンロードし、成功時に正規化されたURLをキーとしてキャッシュを作成する。
     """
     task_id = self.request.id
     
@@ -39,18 +46,15 @@ def download_video(self: Task, url: str) -> dict:
     }
 
     try:
+        # ダウンロードには元のURLを使用
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info_dict = ydl.extract_info(url, download=True)
+            info_dict = ydl.extract_info(original_url, download=True)
             filepath = ydl.prepare_filename(info_dict)
             original_filename = f"{info_dict.get('title', task_id)}.{info_dict.get('ext', 'mp4')}"
 
-            # ★★★★★ ここから追加 ★★★★★
-            # ダウンロード成功後、キャッシュをRedisに保存
-            # Key: 動画URL, Value: 完了したタスクのID
-            redis_client.hset("video_cache", url, task_id)
-            # ★★★★★ ここまで追加 ★★★★★
+            # ★ キャッシュのキーには正規化されたURLを使用
+            redis_client.hset("video_cache", normalized_url, task_id)
 
-            # Celeryに返す結果
             result_data = {
                 'status': 'COMPLETED',
                 'filepath': filepath,
