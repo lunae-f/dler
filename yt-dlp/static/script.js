@@ -4,7 +4,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const tasksList = document.getElementById('tasks-list');
     const pollingIntervals = new Map();
 
-    // ★★★★★ ここから追加 ★★★★★
     // ページ読み込み時に過去のタスクを読み込む
     async function loadInitialTasks() {
         try {
@@ -21,7 +20,6 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error(error);
         }
     }
-    // ★★★★★ ここまで追加 ★★★★★
 
     // フォーム送信時の処理
     form.addEventListener('submit', async (e) => {
@@ -41,7 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
             addTaskToList({
                 task_id: data.task_id,
-                url: data.url, // POSTレスポンスにurlを含めるようにした
+                url: data.url,
                 status: 'PENDING'
             }, true); // 新しいタスクはリストの先頭に追加
 
@@ -52,12 +50,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // ★★★★★ ここから追加/修正 (関数として抽出) ★★★★★
     function addTaskToList(task, prepend = false) {
         const listItem = document.createElement('li');
         listItem.id = `task-${task.task_id}`;
         
-        // URL部分のHTMLを生成
         const urlHtml = task.url ? `<span class="url">${task.url}</span>` : '';
         listItem.innerHTML = `${urlHtml}<span class="status"></span>`;
         
@@ -67,17 +63,14 @@ document.addEventListener('DOMContentLoaded', () => {
             tasksList.appendChild(listItem);
         }
 
-        updateTaskStatus(task); // 初期状態をUIに反映
+        updateTaskStatus(task);
         
-        // 完了していないタスクはポーリングを開始
         if (task.status !== 'SUCCESS' && task.status !== 'FAILURE') {
             startPolling(task.task_id);
         }
     }
-    // ★★★★★ ここまで追加/修正 ★★★★★
 
     function startPolling(taskId) {
-        // すでにポーリング中の場合は何もしない
         if (pollingIntervals.has(taskId)) return;
 
         const intervalId = setInterval(async () => {
@@ -106,6 +99,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 const filename = task.details.original_filename || 'video.mp4';
                 statusElement.className = 'status success';
                 statusElement.innerHTML = `<a href="${downloadUrl}" class="download-link" download="${filename}">ダウンロード</a>`;
+                
+                // URLを表示していた要素を探して、内容をファイル名に置き換える
+                const infoElement = listItem.querySelector('.url');
+                if (infoElement) {
+                    infoElement.textContent = filename;
+                }
+
                 isTaskFinished = true;
                 break;
             case 'FAILURE':
@@ -133,6 +133,5 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
-    // ★★★★★ 最後にこの関数を呼び出す ★★★★★
     loadInitialTasks();
 });
