@@ -2,51 +2,84 @@ document.addEventListener('DOMContentLoaded', () => {
     const form = document.getElementById('url-form');
     const urlInput = document.getElementById('video-url');
     const tasksList = document.getElementById('tasks-list');
-
-    // タスクのポーリング間隔を管理するためのオブジェクト
     const pollingIntervals = new Map();
 
+    // ★★★★★ ここから追加 ★★★★★
+    // ページ読み込み時に過去のタスクを読み込む
+    async function loadInitialTasks() {
+        try {
+            const response = await fetch('/tasks/history');
+            if (!response.ok) {
+                throw new Error('タスク履歴の取得に失敗しました。');
+            }
+            const tasks = await response.json();
+            tasksList.innerHTML = ''; // 一旦リストをクリア
+            for (const task of tasks) {
+                addTaskToList(task, false); // リストの末尾に追加
+            }
+        } catch (error) {
+            console.error(error);
+        }
+    }
+    // ★★★★★ ここまで追加 ★★★★★
+
+    // フォーム送信時の処理
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const url = urlInput.value;
         if (!url) return;
 
         try {
-            // 1. バックエンドにタスク作成をリクエスト
             const response = await fetch('/tasks', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ url }),
             });
 
-            if (!response.ok) {
-                throw new Error('タスクの作成に失敗しました。');
-            }
+            if (!response.ok) throw new Error('タスクの作成に失敗しました。');
 
             const data = await response.json();
-            const { task_id } = data;
+            addTaskToList({
+                task_id: data.task_id,
+                url: data.url, // POSTレスポンスにurlを含めるようにした
+                status: 'PENDING'
+            }, true); // 新しいタスクはリストの先頭に追加
 
-            // 2. UIに新しいタスクを追加
-            const listItem = document.createElement('li');
-            listItem.id = `task-${task_id}`;
-            listItem.innerHTML = `
-                <span class="url">${url}</span>
-                <span class="status processing">処理中...</span>
-            `;
-            tasksList.prepend(listItem);
-
-            // 3. このタスクの状態を定期的に確認開始
-            startPolling(task_id);
-            
             urlInput.value = '';
-
         } catch (error) {
             console.error(error);
             alert(error.message);
         }
     });
 
+    // ★★★★★ ここから追加/修正 (関数として抽出) ★★★★★
+    function addTaskToList(task, prepend = false) {
+        const listItem = document.createElement('li');
+        listItem.id = `task-${task.task_id}`;
+        
+        // URL部分のHTMLを生成
+        const urlHtml = task.url ? `<span class="url">${task.url}</span>` : '';
+        listItem.innerHTML = `${urlHtml}<span class="status"></span>`;
+        
+        if (prepend) {
+            tasksList.prepend(listItem);
+        } else {
+            tasksList.appendChild(listItem);
+        }
+
+        updateTaskStatus(task); // 初期状態をUIに反映
+        
+        // 完了していないタスクはポーリングを開始
+        if (task.status !== 'SUCCESS' && task.status !== 'FAILURE') {
+            startPolling(task.task_id);
+        }
+    }
+    // ★★★★★ ここまで追加/修正 ★★★★★
+
     function startPolling(taskId) {
+        // すでにポーリング中の場合は何もしない
+        if (pollingIntervals.has(taskId)) return;
+
         const intervalId = setInterval(async () => {
             try {
                 const response = await fetch(`/tasks/${taskId}`);
@@ -54,9 +87,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateTaskStatus(data);
             } catch (error) {
                 console.error(`タスク[${taskId}]の状態取得に失敗:`, error);
-                // エラーが続くとポーリングを止めるなどの処理も可能
             }
-        }, 3000); // 3秒ごとに状態を確認
+        }, 3000);
 
         pollingIntervals.set(taskId, intervalId);
     }
@@ -86,12 +118,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusElement.className = 'status processing';
                 statusElement.textContent = '処理中...';
                 break;
-            default:
+            default: // PENDING
+                statusElement.className = 'status';
                 statusElement.textContent = '待機中...';
                 break;
         }
 
-        // タスクが完了または失敗したら、ポーリングを停止
         if (isTaskFinished) {
             const intervalId = pollingIntervals.get(task.task_id);
             if (intervalId) {
@@ -100,4 +132,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     }
+    
+    // ★★★★★ 最後にこの関数を呼び出す ★★★★★
+    loadInitialTasks();
 });

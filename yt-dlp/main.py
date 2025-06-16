@@ -1,44 +1,96 @@
 import os
+import json
 from fastapi import FastAPI, HTTPException, status
-# 必要なモジュールを追加
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, HttpUrl
 from celery.result import AsyncResult
+import redis # ★ redisライブラリをインポート
 
 # worker.py からCeleryアプリケーションとタスクをインポート
 from worker import celery_app, download_video
 
-# 1. FastAPIアプリケーションの初期化
+# --- 初期化 ---
 app = FastAPI(
     title="DLer API",
     description="yt-dlpで動画をダウンロードするAPI",
-    version="1.0.0"
+    version="1.1.0"
 )
-
-# "static"ディレクトリをマウントして、CSSやJSファイルにアクセスできるようにする
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# ★★★★★ ここから追加 ★★★★★
+# Redisクライアントの初期化
+# Docker環境の環境変数を読み込む
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+# ★★★★★ ここまで追加 ★★★★★
 
-# 2. リクエストボディの型定義
+
+# --- Pydanticモデル ---
 class TaskRequest(BaseModel):
     url: HttpUrl
 
-# 3. APIエンドポイントの定義
+
+# --- APIエンドポイント ---
 @app.get("/", response_class=HTMLResponse, summary="フロントエンドページを表示")
 async def read_root():
-    """
-    アプリケーションのメインページ(index.html)を返します。
-    """
-    # index.htmlを読み込んでレスポンスとして返す
     with open("static/index.html") as f:
         return HTMLResponse(content=f.read(), status_code=200)
 
+# ★★★★★ ここから追加 ★★★★★
+@app.get("/tasks/history", summary="過去10件のタスク履歴を取得")
+async def get_tasks_history():
+    """
+    Redisに保存されているタスク履歴から最新10件を取得します。
+    """
+    # Redisのリストから最新10件のタスク情報(JSON文字列)を取得
+    tasks_json = redis_client.lrange("task_history", 0, 9)
+    tasks = [json.loads(task_str) for task_str in tasks_json]
+    
+    # 各タスクの最新の状態をCeleryから取得して追加
+    detailed_tasks = []
+    for task_info in tasks:
+        task_id = task_info.get("task_id")
+        task_result = AsyncResult(task_id, app=celery_app)
+        
+        # get_task_status と同様のロジックで詳細情報を構築
+        full_details = {
+            "task_id": task_id,
+            "url": task_info.get("url"), # 保存しておいたURL
+            "status": task_result.status,
+        }
+        if task_result.successful():
+            full_details['details'] = task_result.result
+            full_details['download_url'] = f"/files/{task_id}"
+        elif task_result.failed():
+            full_details['details'] = str(task_result.info)
+        
+        detailed_tasks.append(full_details)
 
+    return JSONResponse(content=detailed_tasks)
+# ★★★★★ ここまで追加 ★★★★★
+
+
+# ★★★★★ ここから修正 ★★★★★
 @app.post("/tasks", status_code=status.HTTP_202_ACCEPTED, summary="動画ダウンロードタスクを作成")
 async def create_download_task(request: TaskRequest):
+    """
+    タスクを作成し、その情報をRedisの履歴リストにも保存します。
+    """
     task = download_video.delay(str(request.url))
-    return {"task_id": task.id}
+    
+    # Redisに保存するタスク情報を作成
+    task_info = {
+        "task_id": task.id,
+        "url": str(request.url)
+    }
+    # JSON文字列としてRedisリストの先頭に追加
+    redis_client.lpush("task_history", json.dumps(task_info))
+    # リストが長くなりすぎないように、100件までに制限
+    redis_client.ltrim("task_history", 0, 99)
+
+    return {"task_id": task.id, "url": str(request.url)}
+# ★★★★★ ここまで修正 ★★★★★
 
 
 @app.get("/tasks/{task_id}", summary="タスクの状態を取得")
