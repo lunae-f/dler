@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DLer</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>DLer</h1>
+        <p>動画のURLを入力してダウンロードを開始します。</p>
+        <form id="url-form">
+            <input type="url" id="video-url" placeholder="https://www.youtube.com/watch?v=..." required>
+            <button type="submit">ダウンロード開始</button>
+        </form>
+        <div id="tasks-container">
+            <h2>タスク一覧</h2>
+            <ul id="tasks-list">
+                </ul>
+        </div>
+    </div>
+    <script src="/static/script.js"></script>
+</body>
+</html>
