@@ -5,6 +5,6 @@ services:
       context: .
       dockerfile: Dockerfile
     volumes:
-      - ./downloaded:/usr/local/apache2/htdocs/downloads:ro
+      - ./downloaded:/usr/local/apache2/htdocs/downloaded:ro
     ports:
       - 8080:80
