@@ -61,17 +61,23 @@ button:hover {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    overflow: hidden;
 }
 
 #tasks-list li .url {
-    word-break: break-all;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     margin-right: 20px;
+    flex-shrink: 1;
+    min-width: 0;
 }
 
 #tasks-list li .status {
     font-weight: bold;
     min-width: 120px;
     text-align: right;
+    flex-shrink: 0;
 }
 
 .status.processing { color: #f39c12; }
@@ -90,4 +96,22 @@ a.download-link {
 
 a.download-link:hover {
     background-color: #27ae60;
+}
+
+footer {
+    text-align: center;
+    margin-top: 30px;
+    padding: 20px 0;
+    font-size: 14px;
+    color: #888;
+}
+
+footer a {
+    color: #555;
+    font-weight: bold;
+    text-decoration: none;
+}
+
+footer a:hover {
+    text-decoration: underline;
 }
