@@ -1,0 +1,10 @@
+# Web Framework
+fastapi
+uvicorn[standard]
+
+# Task Queue
+celery
+redis>=4.0.0
+
+# Video Downloader
+yt-dlp
