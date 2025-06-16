@@ -19,15 +19,5 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && !empty($_POST['video_url'])) {
     
     // コマンドを実行し、出力を取得
     $output = shell_exec($command);
-
-    // 実行結果のチェック
-    $file_path = trim($output);
-    if (is_file($file_path)) {
-        // 成功：ダウンロードリンクを生成
-        $download_link = 'downloads/' . basename($file_path);
-    } else {
-        // 失敗：出力をエラーメッセージとして扱う
-        $error_message = $output;
-    }
 }
 ?>

@@ -13,30 +13,5 @@ require_once 'dler_logic.php';
             <input type="url" name="videourl"/>
             <button type="submit">DLする！</button>
         </form>
-        <?php
-    // ダウンロードリンクが生成されていれば表示
-    // 変数 $download_link は logic.php で定義されている
-    if ($download_link):
-        ?>
-        <p class="success">
-            ダウンロードが完了しました！<br>
-            <a href="<?php echo htmlspecialchars($download_link); ?>" download>
-                <?php echo htmlspecialchars(basename($download_link)); ?>
-            </a>
-        </p>
-    <?php
-    endif;
-    ?>
-
-    <?php
-    // エラーメッセージがあれば表示
-    // 変数 $error_message は logic.php で定義されている
-    if ($error_message):
-    ?>
-        <h3>エラーが発生しました:</h3>
-        <pre class="error"><?php echo htmlspecialchars($error_message); ?></pre>
-    <?php
-    endif;
-    ?>
-
     </body>
+</html>
