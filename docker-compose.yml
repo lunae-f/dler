@@ -6,7 +6,7 @@ services:
   # 1. APIサーバー (FastAPI)
   api:
     # 現在のディレクトリにあるDockerfileを使ってイメージをビルド
-    build: .
+    build: ./yt-dlp
     # コンテナ内で実行するコマンド
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     # ローカルの8000番ポートをコンテナの8000番ポートに接続
@@ -14,8 +14,8 @@ services:
       - "8000:8000"
     # ローカルのコードをコンテナ内にマウント（コード変更が即時反映される）
     volumes:
-      - .:/app
-      - ./downloads_data:/app/downloads
+      - ./yt-dlp:/app
+      - ./yt-dlp/downloads_data:/app/downloads
     # 環境変数を設定。'redis'は下のサービス名
     environment:
       - REDIS_URL=redis://redis:6379/0
@@ -26,13 +26,13 @@ services:
   # 2. バックグラウンドワーカー (Celery)
   worker:
     # APIサーバーと同じイメージを再利用
-    build: .
+    build: ./api
     # コンテナ内で実行するコマンド
     command: celery -A worker.celery_app worker --loglevel=info
     # ローカルのコードとダウンロード用フォルダをマウント
     volumes:
-      - .:/app
-      - ./downloads_data:/app/downloads
+      - ./yt-dlp:/app
+      - ./yt-dlp/downloads_data:/app/downloads
     # 環境変数を設定
     environment:
       - REDIS_URL=redis://redis:6379/0
