@@ -68,7 +68,6 @@ button:hover {
     text-align: right;
     flex-shrink: 0;
 }
-/* ★★★★★ ここから追加 ★★★★★ */
 .actions {
     display: flex;
     align-items: center;
@@ -81,7 +80,6 @@ button.delete-btn {
 button.delete-btn:hover {
     background-color: #c0392b;
 }
-/* ★★★★★ ここまで追加 ★★★★★ */
 .status.processing { color: #f39c12; }
 .status.success { color: #2ecc71; }
 .status.failure { color: #e74c3c; }

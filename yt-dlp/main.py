@@ -13,7 +13,7 @@ from worker import celery_app, download_video
 app = FastAPI(
     title="DLer API",
     description="yt-dlpで動画をダウンロードするAPI",
-    version="1.6.0" # バージョン更新
+    version="1.7.0" # バージョン更新
 )
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -56,48 +56,12 @@ async def get_tasks_history():
         detailed_tasks.append(full_details)
     return JSONResponse(content=detailed_tasks)
 
-# ★★★★★ ここから修正 ★★★★★
 @app.post("/tasks", status_code=status.HTTP_202_ACCEPTED, summary="動画ダウンロードタスクを作成")
 async def create_download_task(request: TaskRequest):
-    """
-    タスクを作成します。キャッシュ機能は使用しません。
-    """
     original_url = str(request.url)
-
-    # 常に新しいタスクを作成
     task = download_video.delay(original_url)
     add_task_to_history(task.id, original_url)
-    
     return {"task_id": task.id, "url": original_url}
-# ★★★★★ ここまで修正 ★★★★★
-
-@app.post("/tasks/{task_id}/redownload", status_code=status.HTTP_202_ACCEPTED, summary="既存のタスクを再ダウンロード")
-async def redownload_task(task_id: str):
-    """
-    指定されたタスクのURLを元に、新しいダウンロードタスクを開始します。
-    """
-    # 1. 履歴から元のURLを探す
-    all_tasks_json = redis_client.lrange("task_history", 0, -1)
-    original_url = None
-    for task_str in all_tasks_json:
-        try:
-            task_data = json.loads(task_str)
-            if task_data.get("task_id") == task_id:
-                original_url = task_data.get("url")
-                break
-        except json.JSONDecodeError:
-            continue
-    
-    if not original_url:
-        raise HTTPException(status_code=404, detail="Original task URL not found in history.")
-    
-    # 2. 常に新しいダウンロードタスクを作成
-    new_task = download_video.delay(original_url)
-    
-    # 3. 新しいタスクを履歴に追加
-    add_task_to_history(new_task.id, original_url)
-
-    return {"new_task_id": new_task.id, "url": original_url}
 
 def add_task_to_history(task_id: str, url: str):
     task_info = {"task_id": task_id, "url": url}
@@ -142,8 +106,6 @@ async def delete_task(task_id: str):
             except OSError as e:
                 print(f"Error removing file {filepath}: {e}")
 
-    # ★★★★★ ここから修正 ★★★★★
-    # 履歴から削除する処理のみ
     all_tasks_json = redis_client.lrange("task_history", 0, -1)
     task_to_remove_json = None
     for task_str in all_tasks_json:
@@ -157,7 +119,6 @@ async def delete_task(task_id: str):
     
     if task_to_remove_json:
         redis_client.lrem("task_history", 1, task_to_remove_json)
-    # ★★★★★ ここまで修正 ★★★★★
 
     task_result.forget()
     return {"status": "deleted", "task_id": task_id}
