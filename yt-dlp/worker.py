@@ -11,12 +11,8 @@ DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 
-# ★★★★★ ここから修正 ★★★★★
-@celery_app.task(bind=True)
+@celery_app.task(bind=True, throws=(Exception,))
 def download_video(self: Task, url: str) -> dict:
-    """
-    指定されたURLから動画をダウンロードするCeleryタスク。
-    """
     task_id = self.request.id
     
     ydl_opts = {
@@ -26,20 +22,13 @@ def download_video(self: Task, url: str) -> dict:
         'no_warnings': True,
     }
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info_dict = ydl.extract_info(url, download=True)
-            filepath = ydl.prepare_filename(info_dict)
-            original_filename = f"{info_dict.get('title', task_id)}.{info_dict.get('ext', 'mp4')}"
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info_dict = ydl.extract_info(url, download=True)
+        filepath = ydl.prepare_filename(info_dict)
+        original_filename = f"{info_dict.get('title', task_id)}.{info_dict.get('ext', 'mp4')}"
 
-            result_data = {
-                'status': 'COMPLETED',
-                'filepath': filepath,
-                'original_filename': original_filename
-            }
-            return result_data
-            
-    except Exception as e:
-        self.update_state(state='FAILURE', meta={'error': str(e)})
-        raise e
-# ★★★★★ ここまで修正 ★★★★★
+        result_data = {
+            'filepath': filepath,
+            'original_filename': original_filename
+        }
+        return result_data
