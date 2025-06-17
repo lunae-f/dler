@@ -15,7 +15,7 @@ services:
     # ローカルのコードをコンテナ内にマウント（コード変更が即時反映される）
     volumes:
       - ./yt-dlp:/app
-      - ./yt-dlp/downloads_data:/app/downloads
+      - ./yt-dlp/downloads:/app/downloads
     # 環境変数を設定。'redis'は下のサービス名
     environment:
       - REDIS_URL=redis://redis:6379/0
@@ -32,7 +32,7 @@ services:
     # ローカルのコードとダウンロード用フォルダをマウント
     volumes:
       - ./yt-dlp:/app
-      - ./yt-dlp/downloads_data:/app/downloads
+      - ./yt-dlp/downloads:/app/downloads
     # 環境変数を設定
     environment:
       - REDIS_URL=redis://redis:6379/0
