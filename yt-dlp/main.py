@@ -13,15 +13,17 @@ from worker import celery_app, download_video
 app = FastAPI(
     title="DLer API",
     description="yt-dlpで動画をダウンロードするAPI",
-    version="1.7.0"
+    version="1.8.0" # バージョン更新
 )
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
-# --- 定数 ---
-TASK_HISTORY_KEY = "task_history"
+# --- 定数 (Redisキー) ---
+# [変更] データ構造の効率化のため、キー名をより具体的にし、ハッシュマップ用のキーを追加
+TASK_HISTORY_LIST_KEY = "task_history:list"      # タスク履歴を時系列で保存するリスト
+TASK_ID_TO_JSON_MAP_KEY = "task_history:id_map"  # task_idからJSON文字列を引くためのハッシュマップ
 MAX_HISTORY_SIZE = 100 # 保存する最大履歴数
 
 class TaskRequest(BaseModel):
@@ -34,8 +36,7 @@ async def read_root():
 
 @app.get("/tasks/history", summary=f"過去{MAX_HISTORY_SIZE}件のタスク履歴を取得")
 async def get_tasks_history():
-    # lrangeの範囲を0から-1にすることで、常にリスト全体を取得し、ltrimで制限された件数に追従します
-    tasks_json = redis_client.lrange(TASK_HISTORY_KEY, 0, -1)
+    tasks_json = redis_client.lrange(TASK_HISTORY_LIST_KEY, 0, -1)
     tasks = []
     for task_str in tasks_json:
         try:
@@ -59,7 +60,6 @@ async def get_tasks_history():
             full_details['details'] = task_result.result
             full_details['download_url'] = f"/files/{task_id}"
         elif task_result.failed():
-            # task_result.info はExceptionオブジェクトの場合があるため、str()で変換します
             full_details['details'] = str(task_result.info)
         detailed_tasks.append(full_details)
     return JSONResponse(content=detailed_tasks)
@@ -71,18 +71,34 @@ async def create_download_task(request: TaskRequest):
     add_task_to_history(task.id, original_url)
     return {"task_id": task.id, "url": original_url}
 
+# ★★★★★ ここから修正 ★★★★★
 def add_task_to_history(task_id: str, url: str):
     """
-    タスク情報をRedisのリストに保存し、リストのサイズを一定に保つ。
-
+    タスク情報をRedisのリストとハッシュマップに保存し、履歴をクリーンアップする。
     [修正内容]
-    - 不要な `lrem` コマンドを削除しました。
-      タスクIDはユニークなため、既存のタスクを削除する必要はありません。
-      `lpush`でリストの先頭に追加し、`ltrim`でリストのサイズを制限するだけで十分です。
+    - task_idから情報を高速に引けるよう、ハッシュマップにもデータを保存する。
+    - 履歴の上限を超えた際、リストから溢れた古いタスク情報をハッシュマップからも削除し、
+      不要なデータが残らないようにする。
     """
     task_info = {"task_id": task_id, "url": url}
-    redis_client.lpush(TASK_HISTORY_KEY, json.dumps(task_info))
-    redis_client.ltrim(TASK_HISTORY_KEY, 0, MAX_HISTORY_SIZE - 1)
+    task_json = json.dumps(task_info)
+    
+    # トランザクション（パイプライン）で一連の操作をまとめる
+    pipe = redis_client.pipeline()
+    pipe.lpush(TASK_HISTORY_LIST_KEY, task_json)
+    pipe.hset(TASK_ID_TO_JSON_MAP_KEY, task_id, task_json)
+    pipe.ltrim(TASK_HISTORY_LIST_KEY, 0, MAX_HISTORY_SIZE - 1)
+    pipe.execute()
+    
+    # 履歴上限を超えてリストから削除されたタスクを、ハッシュマップからも削除する
+    current_ids_in_list = {json.loads(s)['task_id'] for s in redis_client.lrange(TASK_HISTORY_LIST_KEY, 0, -1)}
+    all_ids_in_map = redis_client.hkeys(TASK_ID_TO_JSON_MAP_KEY)
+    
+    ids_to_remove_from_map = [map_id for map_id in all_ids_in_map if map_id not in current_ids_in_list]
+    if ids_to_remove_from_map:
+        redis_client.hdel(TASK_ID_TO_JSON_MAP_KEY, *ids_to_remove_from_map)
+
+# ★★★★★ ここまで修正 ★★★★★
 
 @app.get("/tasks/{task_id}", summary="タスクの状態を取得")
 async def get_task_status(task_id: str):
@@ -116,28 +132,23 @@ async def delete_task(task_id: str):
 
     # 成功したタスクの場合、関連ファイルを削除
     if task_result.successful():
-        filepath = task_result.result.get('filepath')
+        result = task_result.result or {}
+        filepath = result.get('filepath')
         if filepath and os.path.exists(filepath):
             try:
                 os.remove(filepath)
             except OSError as e:
-                # 削除に失敗しても処理は続行するが、ログには残す
                 print(f"Error removing file {filepath}: {e}")
 
-    # Redisの履歴リストから該当タスクを削除
-    all_tasks_json = redis_client.lrange(TASK_HISTORY_KEY, 0, -1)
-    task_to_remove_json = None
-    for task_str in all_tasks_json:
-        try:
-            task_data = json.loads(task_str)
-            if task_data.get("task_id") == task_id:
-                task_to_remove_json = task_str
-                break
-        except json.JSONDecodeError:
-            continue # 不正なJSONは無視
-    
+    # ハッシュマップから削除対象のJSON文字列を取得
+    task_to_remove_json = redis_client.hget(TASK_ID_TO_JSON_MAP_KEY, task_id)
+
     if task_to_remove_json:
-        redis_client.lrem(TASK_HISTORY_KEY, 1, task_to_remove_json)
+        # トランザクションでリストとハッシュマップからアトミックに削除
+        pipe = redis_client.pipeline()
+        pipe.lrem(TASK_HISTORY_LIST_KEY, 1, task_to_remove_json)
+        pipe.hdel(TASK_ID_TO_JSON_MAP_KEY, task_id)
+        pipe.execute()
 
     # Celeryの結果バックエンドからタスク結果を削除
     task_result.forget()
