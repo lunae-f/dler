@@ -8,7 +8,6 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 celery_app = Celery('tasks', broker=REDIS_URL, backend=REDIS_URL)
 
 DOWNLOAD_DIR = "downloads"
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 
 @celery_app.task(bind=True, throws=(Exception,))

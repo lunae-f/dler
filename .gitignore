@@ -233,7 +233,6 @@ README.md
 
 # Downloaded files and logs
 downloads/
-downloads_data/
 *.log
 
 # Celery temporary files
