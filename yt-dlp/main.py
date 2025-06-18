@@ -13,18 +13,21 @@ from worker import celery_app, download_video
 app = FastAPI(
     title="DLer API",
     description="yt-dlpで動画をダウンロードするAPI",
-    version="1.8.0" # バージョン更新
+    version="1.8.0"
 )
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
-# --- 定数 (Redisキー) ---
-# [変更] データ構造の効率化のため、キー名をより具体的にし、ハッシュマップ用のキーを追加
-TASK_HISTORY_LIST_KEY = "task_history:list"      # タスク履歴を時系列で保存するリスト
-TASK_ID_TO_JSON_MAP_KEY = "task_history:id_map"  # task_idからJSON文字列を引くためのハッシュマップ
-MAX_HISTORY_SIZE = 100 # 保存する最大履歴数
+# --- 定数 (Redisキー & ディレクトリ設定) ---
+TASK_HISTORY_LIST_KEY = "task_history:list"
+TASK_ID_TO_JSON_MAP_KEY = "task_history:id_map"
+MAX_HISTORY_SIZE = 100
+
+# 安全なダウンロードディレクトリの絶対パスを定義
+DOWNLOAD_DIR = "downloads"
+DOWNLOAD_DIR_ABSPATH = os.path.abspath(DOWNLOAD_DIR)
 
 class TaskRequest(BaseModel):
     url: HttpUrl
@@ -75,14 +78,12 @@ def add_task_to_history(task_id: str, url: str):
     task_info = {"task_id": task_id, "url": url}
     task_json = json.dumps(task_info)
     
-    # トランザクション（パイプライン）で一連の操作をまとめる
     pipe = redis_client.pipeline()
     pipe.lpush(TASK_HISTORY_LIST_KEY, task_json)
     pipe.hset(TASK_ID_TO_JSON_MAP_KEY, task_id, task_json)
     pipe.ltrim(TASK_HISTORY_LIST_KEY, 0, MAX_HISTORY_SIZE - 1)
     pipe.execute()
     
-    # 履歴上限を超えてリストから削除されたタスクを、ハッシュマップからも削除する
     current_ids_in_list = {json.loads(s)['task_id'] for s in redis_client.lrange(TASK_HISTORY_LIST_KEY, 0, -1)}
     all_ids_in_map = redis_client.hkeys(TASK_ID_TO_JSON_MAP_KEY)
     
@@ -110,38 +111,48 @@ async def download_file(task_id: str):
     task_result = AsyncResult(task_id, app=celery_app)
     if not task_result.successful():
         raise HTTPException(status_code=404, detail="Task not found, or has failed.")
+    
     result = task_result.get()
     filepath = result.get('filepath')
-    original_filename = result.get('original_filename', f'{task_id}.mp4')
-    if not filepath or not os.path.exists(filepath):
+
+    if not filepath:
+        raise HTTPException(status_code=404, detail="Filepath not found in task result.")
+
+    # パストラバーサル脆弱性対策
+    requested_path_abspath = os.path.abspath(filepath)
+    if not requested_path_abspath.startswith(DOWNLOAD_DIR_ABSPATH):
+        raise HTTPException(status_code=403, detail="Forbidden: Access to this file is not allowed.")
+        
+    if not os.path.exists(requested_path_abspath):
         raise HTTPException(status_code=404, detail="File not found on the server.")
-    return FileResponse(path=filepath, filename=original_filename, media_type='application/octet-stream')
+
+    original_filename = result.get('original_filename', f'{task_id}.mp4')
+    return FileResponse(path=requested_path_abspath, filename=original_filename, media_type='application/octet-stream')
 
 @app.delete("/tasks/{task_id}", status_code=status.HTTP_200_OK, summary="タスクと関連ファイルを削除")
 async def delete_task(task_id: str):
     task_result = AsyncResult(task_id, app=celery_app)
 
-    # 成功したタスクの場合、関連ファイルを削除
     if task_result.successful():
         result = task_result.result or {}
         filepath = result.get('filepath')
         if filepath and os.path.exists(filepath):
             try:
-                os.remove(filepath)
+                # ここでもファイルパスを検証することがより安全
+                file_to_delete_abspath = os.path.abspath(filepath)
+                if file_to_delete_abspath.startswith(DOWNLOAD_DIR_ABSPATH):
+                    os.remove(file_to_delete_abspath)
             except OSError as e:
                 print(f"Error removing file {filepath}: {e}")
 
-    # ハッシュマップから削除対象のJSON文字列を取得
     task_to_remove_json = redis_client.hget(TASK_ID_TO_JSON_MAP_KEY, task_id)
 
     if task_to_remove_json:
-        # トランザクションでリストとハッシュマップからアトミックに削除
         pipe = redis_client.pipeline()
         pipe.lrem(TASK_HISTORY_LIST_KEY, 1, task_to_remove_json)
         pipe.hdel(TASK_ID_TO_JSON_MAP_KEY, task_id)
         pipe.execute()
 
-    # Celeryの結果バックエンドからタスク結果を削除
     task_result.forget()
     
     return {"status": "deleted", "task_id": task_id}
