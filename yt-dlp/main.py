@@ -71,15 +71,7 @@ async def create_download_task(request: TaskRequest):
     add_task_to_history(task.id, original_url)
     return {"task_id": task.id, "url": original_url}
 
-# ★★★★★ ここから修正 ★★★★★
 def add_task_to_history(task_id: str, url: str):
-    """
-    タスク情報をRedisのリストとハッシュマップに保存し、履歴をクリーンアップする。
-    [修正内容]
-    - task_idから情報を高速に引けるよう、ハッシュマップにもデータを保存する。
-    - 履歴の上限を超えた際、リストから溢れた古いタスク情報をハッシュマップからも削除し、
-      不要なデータが残らないようにする。
-    """
     task_info = {"task_id": task_id, "url": url}
     task_json = json.dumps(task_info)
     
@@ -98,7 +90,6 @@ def add_task_to_history(task_id: str, url: str):
     if ids_to_remove_from_map:
         redis_client.hdel(TASK_ID_TO_JSON_MAP_KEY, *ids_to_remove_from_map)
 
-# ★★★★★ ここまで修正 ★★★★★
 
 @app.get("/tasks/{task_id}", summary="タスクの状態を取得")
 async def get_task_status(task_id: str):
