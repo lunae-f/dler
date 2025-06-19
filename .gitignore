@@ -207,29 +207,16 @@ downloads_data/
 .git
 .gitignore
 
-# Docker
-Dockerfile
-docker-compose.yml
 
 # Python cache
-__pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
 
-# Virtual environments
-.venv
-venv/
-env/
-ENV/
-
 # IDE / Editor folders
 .vscode/
 .idea/
-
-# README
-README.md
 
 # Downloaded files and logs
 downloads/
