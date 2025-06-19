@@ -1,3 +1,23 @@
+/* 既存の .url スタイルをリンク用に変更 */
+#tasks-list li .url {
+    color: #2c3e50; /* 見出しと同じ色で見やすく */
+    text-decoration: none; /* 下線を削除 */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-right: 20px;
+    flex-shrink: 1;
+    min-width: 0;
+    transition: color 0.2s;
+}
+
+/* リンクにマウスカーソルを合わせた時のスタイル */
+#tasks-list li a.url:hover {
+    text-decoration: underline; /* ホバー時に下線を表示 */
+    color: #3498db; /* ボタンと同じ色でインタラクティブに */
+}
+
+/* --- 以下は既存のスタイルです（変更なし） --- */
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     background-color: #f4f7f6;
@@ -54,14 +74,6 @@ button:hover {
     justify-content: space-between;
     align-items: center;
     overflow: hidden;
-}
-#tasks-list li .url {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    margin-right: 20px;
-    flex-shrink: 1;
-    min-width: 0;
 }
 #tasks-list li .status {
     font-weight: bold;

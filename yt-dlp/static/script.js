@@ -61,8 +61,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const listItem = document.createElement('li');
         listItem.id = `task-${task.task_id}`;
         
-        const urlHtml = task.url ? `<span class="url">${task.url}</span>` : '';
-        listItem.innerHTML = `${urlHtml}<span class="status"></span>`;
+        // 初期描画用のプレースホルダー。updateTaskStatusですぐに上書きされる。
+        listItem.innerHTML = `<span class="url-placeholder"></span><span class="status"></span>`;
         
         if (prepend) tasksList.prepend(listItem);
         else tasksList.appendChild(listItem);
@@ -79,8 +79,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const intervalId = setInterval(async () => {
             try {
                 const response = await fetch(`/tasks/${taskId}`);
-                if (!response.ok) throw new Error('Status check failed');
+                if (!response.ok) {
+                    console.error(`Status check for task [${taskId}] failed with status ${response.status}`);
+                    return;
+                };
                 const data = await response.json();
+                
+                // ポーリングで取得したデータにはURLが含まれないため、DOMから引き継ぐ
+                const listItem = document.getElementById(`task-${taskId}`);
+                const urlElement = listItem?.querySelector('a.url');
+                if (urlElement && !data.url) {
+                    data.url = urlElement.href;
+                }
                 updateTaskStatus(data);
             } catch (error) {
                 console.error(`タスク[${taskId}]の状態取得に失敗:`, error);
@@ -93,35 +103,58 @@ document.addEventListener('DOMContentLoaded', () => {
         const listItem = document.getElementById(`task-${task.task_id}`);
         if (!listItem) return;
 
-        const statusElement = listItem.querySelector('.status');
         let isTaskFinished = false;
-
         const deleteButtonHtml = `<button class="delete-btn" data-task-id="${task.task_id}">削除</button>`;
+        
+        // URL情報をタスクオブジェクトまたは既存のDOM要素から取得
+        const urlElement = listItem.querySelector('a.url');
+        const originalUrl = task.url || (urlElement ? urlElement.href : '');
+
+        // リンクを生成するヘルパー関数
+        const createVideoLink = (text, url) => {
+            if (url) {
+                return `<a href="${url}" class="url" target="_blank" rel="noopener noreferrer" title="${url}">${text}</a>`;
+            }
+            return `<span class="url">${text}</span>`;
+        };
 
         switch (task.status) {
             case 'SUCCESS':
-                const downloadUrl = task.download_url;
                 const filename = task.details.original_filename || 'video.mp4';
-                statusElement.className = 'status success';
-                statusElement.innerHTML = `<div class="actions"><a href="${downloadUrl}" class="download-link" download="${filename}">ダウンロード</a>${deleteButtonHtml}</div>`;
-                
-                const infoElement = listItem.querySelector('.url');
-                if (infoElement) infoElement.textContent = filename;
+                listItem.innerHTML = `
+                    ${createVideoLink(filename, originalUrl)}
+                    <span class="status success">
+                        <div class="actions">
+                            <a href="${task.download_url}" class="download-link" download="${filename}">ダウンロード</a>
+                            ${deleteButtonHtml}
+                        </div>
+                    </span>`;
                 isTaskFinished = true;
                 break;
+
             case 'FAILURE':
-                statusElement.className = 'status failure';
-                statusElement.innerHTML = `<div class="actions"><span>失敗</span>${deleteButtonHtml}</div>`;
+                listItem.innerHTML = `
+                    ${createVideoLink(originalUrl || 'URL不明', originalUrl)}
+                    <span class="status failure">
+                        <div class="actions">
+                            <span>失敗</span>
+                            ${deleteButtonHtml}
+                        </div>
+                    </span>`;
                 isTaskFinished = true;
                 break;
+
             case 'PROCESSING':
             case 'STARTED':
-                statusElement.className = 'status processing';
-                statusElement.textContent = '処理中...';
+                listItem.innerHTML = `
+                    ${createVideoLink(originalUrl, originalUrl)}
+                    <span class="status processing">処理中...</span>`;
                 break;
-            default: // PENDING
-                statusElement.className = 'status';
-                statusElement.textContent = '待機中...';
+
+            default: // PENDING やその他の未知のステータス
+                listItem.innerHTML = `
+                    ${createVideoLink(originalUrl || 'URL不明', originalUrl)}
+                    <span class="status">待機中...</span>`;
                 break;
         }
 
