@@ -10,6 +10,7 @@
 """
 import os
 import json
+import time
 from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -31,8 +32,9 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
 # --- 定数 (Redisキー & ディレクトリ設定) ---
-TASK_HISTORY_LIST_KEY = "task_history:list"
-TASK_ID_TO_JSON_MAP_KEY = "task_history:id_map"
+# ZSETでタスクIDをタイムスタンプ順に管理し、HASHで詳細を管理する
+TASK_HISTORY_ZSET_KEY = "task_history:zset"
+TASK_DETAILS_HASH_KEY = "task_details:hash"
 MAX_HISTORY_SIZE = 100
 
 DOWNLOAD_DIR = "downloads"
@@ -55,39 +57,43 @@ async def read_root():
 async def get_tasks_history():
     """過去のタスク履歴を最大件数まで取得します。
 
-    Redisに保存されているタスク履歴を取得し、各タスクの最新の状態を
+    Redisに保存されているタスクIDを新しい順に取得し、各タスクの最新の状態を
     Celeryバックエンドから問い合わせて付与したリストを返します。
 
     Returns:
         JSONResponse: 成功したタスク、失敗したタスク、処理中のタスクの
                       詳細情報を含むリスト。
     """
-    tasks_json = redis_client.lrange(TASK_HISTORY_LIST_KEY, 0, -1)
-    tasks = []
-    for task_str in tasks_json:
-        try:
-            task_data = json.loads(task_str)
-            if isinstance(task_data, dict) and "task_id" in task_data:
-                tasks.append(task_data)
-        except json.JSONDecodeError:
-            print(f"Warning: Could not decode task from history: {task_str}")
-            continue
+    # ZSETからタスクIDを新しい順に取得
+    task_ids = redis_client.zrevrange(TASK_HISTORY_ZSET_KEY, 0, MAX_HISTORY_SIZE - 1)
+    if not task_ids:
+        return JSONResponse(content=[])
+
+    # HASHからタスクの詳細を一括取得
+    tasks_details_json = redis_client.hmget(TASK_DETAILS_HASH_KEY, task_ids)
 
     detailed_tasks = []
-    for task_info in tasks:
-        task_id = task_info.get("task_id")
-        if not task_id:
-            continue
+    for task_id, task_detail_json in zip(task_ids, tasks_details_json):
         task_result = AsyncResult(task_id, app=celery_app)
+        
+        url = None
+        if task_detail_json:
+            try:
+                url = json.loads(task_detail_json).get("url")
+            except (json.JSONDecodeError, TypeError):
+                print(f"Warning: Could not decode task detail for {task_id}")
+
         full_details = {
-            "task_id": task_id, "url": task_info.get("url"), "status": task_result.status,
+            "task_id": task_id, "url": url, "status": task_result.status,
         }
         if task_result.successful():
             full_details['details'] = task_result.result
             full_details['download_url'] = f"/files/{task_id}"
         elif task_result.failed():
             full_details['details'] = str(task_result.info)
+        
         detailed_tasks.append(full_details)
+        
     return JSONResponse(content=detailed_tasks)
 
 @app.post("/tasks", status_code=status.HTTP_202_ACCEPTED, summary="動画ダウンロードタスクを作成")
@@ -111,30 +117,34 @@ async def create_download_task(request: TaskRequest):
 def add_task_to_history(task_id: str, url: str):
     """Redisにタスク情報を追加するヘルパー関数。
 
-    新しいタスクの情報をRedisのリストとハッシュマップに保存します。
-    リストのサイズは一定に保たれ、古いものから削除されます。
-    また、リストとマップの整合性を保つためのクリーンアップ処理も行います。
+    新しいタスクの情報をRedisのZSETとHASHに保存します。
+    ZSETのサイズは一定に保たれ、古いものから削除されます。
+    HASHに孤児データが残らないよう、クリーンアップも行います。
 
     Args:
         task_id (str): 保存するタスクのID。
         url (str): 保存するタスクの元のURL。
     """
-    task_info = {"task_id": task_id, "url": url}
-    task_json = json.dumps(task_info)
-    
     pipe = redis_client.pipeline()
-    pipe.lpush(TASK_HISTORY_LIST_KEY, task_json)
-    pipe.hset(TASK_ID_TO_JSON_MAP_KEY, task_id, task_json)
-    pipe.ltrim(TASK_HISTORY_LIST_KEY, 0, MAX_HISTORY_SIZE - 1)
+    timestamp = time.time()
+    task_details = json.dumps({"url": url})
+    
+    # 新しいタスクをZSETとHASHに追加
+    pipe.zadd(TASK_HISTORY_ZSET_KEY, {task_id: timestamp})
+    pipe.hset(TASK_DETAILS_HASH_KEY, task_id, task_details)
+    
+    # ZSETのサイズを制限し、古いエントリを削除
+    pipe.zremrangebyrank(TASK_HISTORY_ZSET_KEY, 0, -MAX_HISTORY_SIZE - 1)
+    
     pipe.execute()
     
-    current_ids_in_list = {json.loads(s)['task_id'] for s in redis_client.lrange(TASK_HISTORY_LIST_KEY, 0, -1)}
-    all_ids_in_map = redis_client.hkeys(TASK_ID_TO_JSON_MAP_KEY)
+    # HASH内の孤児エントリをクリーンアップ (ZSETに存在しないものを削除)
+    current_ids_in_zset = redis_client.zrange(TASK_HISTORY_ZSET_KEY, 0, -1)
+    all_ids_in_hash = redis_client.hkeys(TASK_DETAILS_HASH_KEY)
     
-    ids_to_remove_from_map = [map_id for map_id in all_ids_in_map if map_id not in current_ids_in_list]
-    if ids_to_remove_from_map:
-        redis_client.hdel(TASK_ID_TO_JSON_MAP_KEY, *ids_to_remove_from_map)
-
+    ids_to_remove_from_hash = [hash_id for hash_id in all_ids_in_hash if hash_id not in current_ids_in_zset]
+    if ids_to_remove_from_hash:
+        redis_client.hdel(TASK_DETAILS_HASH_KEY, *ids_to_remove_from_hash)
 
 @app.get("/tasks/{task_id}", summary="タスクの状態を取得")
 async def get_task_status(task_id: str):
@@ -149,7 +159,8 @@ async def get_task_status(task_id: str):
     task_result = AsyncResult(task_id, app=celery_app)
     status = task_result.status
 
-    task_info_json = redis_client.hget(TASK_ID_TO_JSON_MAP_KEY, task_id)
+    # HASHからURLを直接取得
+    task_info_json = redis_client.hget(TASK_DETAILS_HASH_KEY, task_id)
     url = json.loads(task_info_json).get("url") if task_info_json else None
     
     response_data = {"task_id": task_id, "status": status, "url": url}
@@ -163,7 +174,6 @@ async def get_task_status(task_id: str):
             response_data['details'] = str(result)
             
     return JSONResponse(content=response_data)
-
 
 @app.get("/files/{task_id}", summary="ダウンロードしたファイルを取得")
 async def download_file(task_id: str):
@@ -228,16 +238,15 @@ async def delete_task(task_id: str):
                 if file_to_delete_abspath.startswith(DOWNLOAD_DIR_ABSPATH):
                     os.remove(file_to_delete_abspath)
             except OSError as e:
-                print(f"Error removing file {filepath}: {e}")
+                print(f"Error removing file {filepath}: {e}") # ロガーに置き換えるのが望ましい
 
-    task_to_remove_json = redis_client.hget(TASK_ID_TO_JSON_MAP_KEY, task_id)
+    # RedisからZSETとHASHのエントリを削除
+    pipe = redis_client.pipeline()
+    pipe.zrem(TASK_HISTORY_ZSET_KEY, task_id)
+    pipe.hdel(TASK_DETAILS_HASH_KEY, task_id)
+    pipe.execute()
 
-    if task_to_remove_json:
-        pipe = redis_client.pipeline()
-        pipe.lrem(TASK_HISTORY_LIST_KEY, 1, task_to_remove_json)
-        pipe.hdel(TASK_ID_TO_JSON_MAP_KEY, task_id)
-        pipe.execute()
-
+    # Celeryバックエンドから結果を削除
     task_result.forget()
     
     return {"status": "deleted", "task_id": task_id}
