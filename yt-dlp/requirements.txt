@@ -8,3 +8,10 @@ redis>=4.0.0
 
 # Video Downloader
 yt-dlp
+
+# Testing
+pytest
+httpx
+pytest-mock
+pytest-env
+pytest-playwright

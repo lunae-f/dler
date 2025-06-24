@@ -16,12 +16,13 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy # redisのヘルスチェックが通るまで待機
 
   # 2. バックグラウンドワーカー (Celery)
   worker:
     build: ./yt-dlp
-    command: celery -A worker.celery_app worker --loglevel=info
+    command: celery -A celery_instance.celery_app worker --loglevel=info
     restart: unless-stopped
     volumes:
       - ./yt-dlp:/app
@@ -29,7 +30,8 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy # redisのヘルスチェックが通るまで待機
 
   # 3. メッセージブローカー (Redis)
   redis:
@@ -37,6 +39,11 @@ services:
     restart: unless-stopped
     volumes:
       - redis_data:/data # Redisのデータを永続化するためのボリューム
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"] # 'ping'コマンドでRedisの生死を確認
+      interval: 10s                     # 10秒ごとに確認
+      timeout: 5s                       # 5秒以内に応答がなければタイムアウト
+      retries: 5                        # 5回リトライして失敗したらunhealthyと判断
 
 # 永続化に使用する名前付きボリュームを定義
 volumes:

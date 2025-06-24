@@ -6,13 +6,11 @@ Celeryタスクを含んでいます。タスクは非同期に実行され、�
 """
 import os
 import re
-import redis
-from celery import Celery, Task
+from celery import Task
 import yt_dlp
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-
-celery_app = Celery('tasks', broker=REDIS_URL, backend=REDIS_URL)
+from logger_config import logger
+from celery_instance import celery_app  # 独立したインスタンスをインポート
 
 DOWNLOAD_DIR = "downloads"
 
@@ -22,17 +20,11 @@ def sanitize_filename(filename: str) -> str:
 
     Windowsや他のOSで無効な文字を安全な文字に置き換えることで、
     ファイルシステムエラーを防ぎます。
-
-    Args:
-        filename (str): サニタイズ対象のファイル名文字列。
-
-    Returns:
-        str: サニタイズされたファイル名文字列。
     """
     return re.sub(r'[\\/*?:"<>|]', "_", filename)
 
 
-@celery_app.task(bind=True, throws=(Exception,))
+@celery_app.task(bind=True, throws=(yt_dlp.utils.DownloadError, Exception))
 def download_video(self: Task, url: str) -> dict:
     """指定されたURLから動画を非同期でダウンロードするCeleryタスク。
 
@@ -45,35 +37,48 @@ def download_video(self: Task, url: str) -> dict:
 
     Returns:
         dict: ダウンロードが成功した場合、ファイルパスと元のファイル名を含む辞書。
-            例: {'filepath': '/app/downloads/task_id.mp4', 'original_filename': 'video_title.mp4'}
 
     Raises:
-        yt_dlp.utils.DownloadError: yt-dlpが動画のダウンロードに失敗した場合
-            (例: 動画が存在しない、地域制限、プライベート動画など)。
+        yt_dlp.utils.DownloadError: yt-dlpが動画のダウンロードに失敗した場合。
         Exception: その他の予期せぬエラーが発生した場合。
     """
     task_id = self.request.id
+    logger.info(f"[{task_id}] Starting download for URL: {url}")
     
     ydl_opts = {
         'outtmpl': os.path.join(DOWNLOAD_DIR, f'{task_id}.%(ext)s'),
         'format': 'bestvideo[vcodec*=avc1]+bestaudio[acodec*=mp4a]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'quiet': True,
         'no_warnings': True,
+        'postprocessors': [{
+            'key': 'FFmpegMetadata',
+            'add_metadata': True,
+        }],
     }
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        # 動画情報を抽出してダウンロードを実行
-        info_dict = ydl.extract_info(url, download=True)
-        filepath = ydl.prepare_filename(info_dict)
-        
-        # ファイル名をサニタイズ
-        title = info_dict.get('title', task_id)
-        ext = info_dict.get('ext', 'mp4')
-        original_filename = f"{sanitize_filename(title)}.{ext}"
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            # 動画情報を抽出してダウンロードを実行
+            info_dict = ydl.extract_info(url, download=True)
+            filepath = ydl.prepare_filename(info_dict)
+            
+            # ファイル名をサニタイズ
+            title = info_dict.get('title', task_id)
+            ext = info_dict.get('ext', 'mp4')
+            original_filename = f"{sanitize_filename(title)}.{ext}"
 
-        # 結果を辞書として返す
-        result_data = {
-            'filepath': filepath,
-            'original_filename': original_filename
-        }
-        return result_data
+            # 結果を辞書として返す
+            result_data = {
+                'filepath': filepath,
+                'original_filename': original_filename
+            }
+            logger.info(f"[{task_id}] Download successful. File saved at: {filepath}")
+            return result_data
+            
+    except yt_dlp.utils.DownloadError as e:
+        logger.error(f"[{task_id}] Failed to download video from {url}. Reason: {e}")
+        # 例外を再送出することで、Celeryタスクの状態が'FAILURE'に設定される
+        raise
+    except Exception as e:
+        logger.error(f"[{task_id}] An unexpected error occurred for URL {url}. Reason: {e}")
+        raise
