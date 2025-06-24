@@ -96,13 +96,21 @@ def add_task_to_history(task_id: str, url: str):
 async def get_task_status(task_id: str):
     task_result = AsyncResult(task_id, app=celery_app)
     status = task_result.status
-    result = task_result.result if task_result.ready() else None
-    response_data = {"task_id": task_id, "status": status}
-    if status == 'SUCCESS':
-        response_data['details'] = result
-        response_data['download_url'] = f"/files/{task_id}"
-    elif status == 'FAILURE':
-        response_data['details'] = str(result)
+
+    # Redisから元のURL情報を取得
+    task_info_json = redis_client.hget(TASK_ID_TO_JSON_MAP_KEY, task_id)
+    url = json.loads(task_info_json).get("url") if task_info_json else None
+    
+    response_data = {"task_id": task_id, "status": status, "url": url}
+    
+    if task_result.ready():
+        result = task_result.result
+        if status == 'SUCCESS':
+            response_data['details'] = result
+            response_data['download_url'] = f"/files/{task_id}"
+        elif status == 'FAILURE':
+            response_data['details'] = str(result)
+            
     return JSONResponse(content=response_data)
 
 

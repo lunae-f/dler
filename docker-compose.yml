@@ -32,3 +32,9 @@ services:
   # 3. メッセージブローカー (Redis)
   redis:
     image: "redis:7-alpine"
+    volumes:
+      - redis_data:/data # Redisのデータを永続化するためのボリューム
+
+# 永続化に使用する名前付きボリュームを定義
+volumes:
+  redis_data:
