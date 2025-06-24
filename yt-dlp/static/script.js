@@ -4,22 +4,29 @@ document.addEventListener('DOMContentLoaded', () => {
     const tasksList = document.getElementById('tasks-list');
     const pollingIntervals = new Map();
 
+    /**
+     * 初期表示時にタスク履歴をサーバーから読み込みます。
+     */
     async function loadInitialTasks() {
         try {
             const response = await fetch('/tasks/history');
             if (!response.ok) throw new Error('タスク履歴の取得に失敗しました。');
             const tasks = await response.json();
-            tasksList.innerHTML = '';
+            tasksList.innerHTML = ''; // リストをクリア
             tasks.forEach(task => addTaskToList(task, false));
         } catch (error) {
             console.error(error);
         }
     }
 
+    /**
+     * フォームの送信イベントを処理します。
+     */
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const url = urlInput.value;
         if (!url) return;
+
         try {
             const response = await fetch('/tasks', {
                 method: 'POST',
@@ -31,20 +38,24 @@ document.addEventListener('DOMContentLoaded', () => {
             addTaskToList({
                 task_id: data.task_id,
                 url: data.url,
-                status: 'STARTED'
+                status: 'STARTED' // 初期ステータス
             }, true);
             urlInput.value = '';
         } catch (error) {
             console.error(error);
+            // 本番環境ではよりユーザーフレンドリーなエラー表示が望ましい
             alert(error.message);
         }
     });
 
-    // 削除ボタンのクリック処理
+    /**
+     * タスクリスト内のクリックイベントを処理します（削除ボタン）。
+     */
     tasksList.addEventListener('click', async (e) => {
         if (e.target.classList.contains('delete-btn')) {
             const taskId = e.target.dataset.taskId;
-            if (!taskId || !confirm('このタスクとファイルを本当に削除しますか？')) return;
+            // confirm は一時的な措置。より良いUI/UXのためにはカスタムモーダルが望ましい。
+            if (!taskId || !confirm('このタスクと関連ファイルを本当に削除しますか？')) return;
 
             try {
                 const response = await fetch(`/tasks/${taskId}`, { method: 'DELETE' });
@@ -57,99 +68,142 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    /**
+     * タスクをリストに追加します。
+     * @param {object} task - タスクオブジェクト
+     * @param {boolean} prepend - trueの場合、リストの先頭に追加します
+     */
     function addTaskToList(task, prepend = false) {
+        // 既存のタスクがリストになければ追加
+        if (document.getElementById(`task-${task.task_id}`)) return;
+
         const listItem = document.createElement('li');
         listItem.id = `task-${task.task_id}`;
         
-        // 初期描画用のプレースホルダー。updateTaskStatusですぐに上書きされる。
-        listItem.innerHTML = `<span class="url-placeholder"></span><span class="status"></span>`;
-        
-        if (prepend) tasksList.prepend(listItem);
-        else tasksList.appendChild(listItem);
+        if (prepend) {
+            tasksList.prepend(listItem);
+        } else {
+            tasksList.appendChild(listItem);
+        }
 
-        updateTaskStatus(task);
+        updateTaskListItem(task); // リストアイテムの中身を更新
         
+        // 完了または失敗していないタスクはポーリングを開始
         if (task.status !== 'SUCCESS' && task.status !== 'FAILURE') {
             startPolling(task.task_id);
         }
     }
 
+    /**
+     * 指定されたタスクIDのポーリングを開始します。
+     * @param {string} taskId - タスクID
+     */
     function startPolling(taskId) {
         if (pollingIntervals.has(taskId)) return;
+
         const intervalId = setInterval(async () => {
             try {
                 const response = await fetch(`/tasks/${taskId}`);
                 if (!response.ok) {
-                    console.error(`Status check for task [${taskId}] failed with status ${response.status}`);
+                    console.error(`タスク[${taskId}]の状態確認に失敗: ${response.status}`);
+                    // 404などの場合はポーリングを停止することも検討
                     return;
                 };
                 const data = await response.json();
-                updateTaskStatus(data); // APIから返されたデータで直接更新
+                updateTaskListItem(data);
             } catch (error) {
-                console.error(`タスク[${taskId}]の状態取得に失敗:`, error);
+                console.error(`タスク[${taskId}]の状態取得中にエラーが発生:`, error);
+                // エラーが続く場合はポーリングを停止するロジックを追加することも可能
             }
-        }, 3000);
+        }, 3000); // 3秒間隔
+
         pollingIntervals.set(taskId, intervalId);
     }
 
-    function updateTaskStatus(task) {
+    /**
+     * タスクの状態に基づいてリストアイテムの表示を安全に更新します。
+     * XSS脆弱性を防ぐため、innerHTMLではなくDOM操作APIを使用します。
+     * @param {object} task - 更新するタスクのオブジェクト
+     */
+    function updateTaskListItem(task) {
         const listItem = document.getElementById(`task-${task.task_id}`);
         if (!listItem) return;
 
-        let isTaskFinished = false;
-        const deleteButtonHtml = `<button class="delete-btn" data-task-id="${task.task_id}">削除</button>`;
+        // --- 安全なDOM更新 ---
+        // 1. 中身を一旦空にする
+        listItem.innerHTML = '';
+
+        // 2. 左側のコンテンツ要素（URLまたはファイル名）を作成
+        const contentEl = document.createElement('a');
+        contentEl.className = 'url';
+        const originalUrl = task.url || '#';
+        if (originalUrl !== '#') {
+            contentEl.href = originalUrl;
+            contentEl.target = '_blank';
+            contentEl.rel = 'noopener noreferrer';
+            contentEl.title = originalUrl;
+        }
+
+        // 3. 右側のステータス・アクション要素を作成
+        const statusEl = document.createElement('span');
+        const actionsContainer = document.createElement('div');
+        actionsContainer.className = 'actions';
         
-        // APIから常にURLが返されるため、ロジックを簡素化
-        const originalUrl = task.url || 'URL不明';
+        let isTaskFinished = false;
 
-        // リンクを生成するヘルパー関数
-        const createVideoLink = (text, url) => {
-            if (url && url !== 'URL不明') {
-                return `<a href="${url}" class="url" target="_blank" rel="noopener noreferrer" title="${url}">${text}</a>`;
-            }
-            return `<span class="url">${text}</span>`;
-        };
-
+        // 4. タスクの状態に応じて各要素の内容を決定
         switch (task.status) {
             case 'SUCCESS':
-                const filename = task.details.original_filename || 'video.mp4';
-                listItem.innerHTML = `
-                    ${createVideoLink(filename, originalUrl)}
-                    <span class="status success">
-                        <div class="actions">
-                            <a href="${task.download_url}" class="download-link" download="${filename}">ダウンロード</a>
-                            ${deleteButtonHtml}
-                        </div>
-                    </span>`;
                 isTaskFinished = true;
+                statusEl.className = 'status success';
+                const filename = task.details?.original_filename || 'video.mp4';
+                // textContent を使って安全にテキストを設定
+                contentEl.textContent = filename;
+
+                const downloadLink = document.createElement('a');
+                downloadLink.className = 'download-link';
+                downloadLink.href = task.download_url;
+                downloadLink.textContent = 'ダウンロード';
+                // download属性にファイル名を指定
+                downloadLink.setAttribute('download', filename);
+
+                actionsContainer.appendChild(downloadLink);
+                actionsContainer.appendChild(createDeleteButton(task.task_id));
+                statusEl.appendChild(actionsContainer);
                 break;
 
             case 'FAILURE':
-                listItem.innerHTML = `
-                    ${createVideoLink(originalUrl, originalUrl)}
-                    <span class="status failure">
-                        <div class="actions">
-                            <span>失敗</span>
-                            ${deleteButtonHtml}
-                        </div>
-                    </span>`;
                 isTaskFinished = true;
+                statusEl.className = 'status failure';
+                contentEl.textContent = originalUrl;
+
+                const failureText = document.createElement('span');
+                failureText.textContent = '失敗';
+                
+                actionsContainer.appendChild(failureText);
+                actionsContainer.appendChild(createDeleteButton(task.task_id));
+                statusEl.appendChild(actionsContainer);
                 break;
 
             case 'PROCESSING':
             case 'STARTED':
-                listItem.innerHTML = `
-                    ${createVideoLink(originalUrl, originalUrl)}
-                    <span class="status processing">処理中...</span>`;
+                statusEl.className = 'status processing';
+                statusEl.textContent = '処理中...';
+                contentEl.textContent = originalUrl;
                 break;
 
             default: // PENDING やその他の未知のステータス
-                listItem.innerHTML = `
-                    ${createVideoLink(originalUrl, originalUrl)}
-                    <span class="status">待機中...</span>`;
+                statusEl.className = 'status';
+                statusEl.textContent = '待機中...';
+                contentEl.textContent = originalUrl;
                 break;
         }
+        
+        // 5. 作成した要素をリストアイテムに追加
+        listItem.appendChild(contentEl);
+        listItem.appendChild(statusEl);
 
+        // 6. タスクが完了または失敗した場合、ポーリングを停止
         if (isTaskFinished) {
             const intervalId = pollingIntervals.get(task.task_id);
             if (intervalId) {
@@ -159,5 +213,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
+    /**
+     * 削除ボタンのHTML要素を生成します。
+     * @param {string} taskId - 削除対象のタスクID
+     * @returns {HTMLButtonElement} 削除ボタン要素
+     */
+    function createDeleteButton(taskId) {
+        const button = document.createElement('button');
+        button.className = 'delete-btn';
+        button.dataset.taskId = taskId;
+        button.textContent = '削除';
+        return button;
+    }
+
+    // 初期化
     loadInitialTasks();
 });
