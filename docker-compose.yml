@@ -7,6 +7,7 @@ services:
   api:
     build: ./yt-dlp
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
     ports:
       - "8000:8000"
     volumes:
@@ -21,6 +22,7 @@ services:
   worker:
     build: ./yt-dlp
     command: celery -A worker.celery_app worker --loglevel=info
+    restart: unless-stopped
     volumes:
       - ./yt-dlp:/app
       - ./yt-dlp/downloads:/app/downloads
@@ -32,6 +34,7 @@ services:
   # 3. メッセージブローカー (Redis)
   redis:
     image: "redis:7-alpine"
+    restart: unless-stopped
     volumes:
       - redis_data:/data # Redisのデータを永続化するためのボリューム
 
