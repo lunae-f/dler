@@ -40,6 +40,17 @@ docker compose up -d --build
 docker compose down
 ```
 
+## (メモ)テスト
+
+1. apiコンテナにexec
+2. コマンドを実行
+
+```sh
+playwright install
+playwright install-deps
+pytest
+```
+
 ## ライセンス
 このプロジェクトは MIT License の下で公開されています。<br>
 This project was created with ❤️‍🔥 by Lunae.
