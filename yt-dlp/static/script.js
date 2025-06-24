@@ -84,14 +84,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 };
                 const data = await response.json();
-                
-                // ポーリングで取得したデータにはURLが含まれないため、DOMから引き継ぐ
-                const listItem = document.getElementById(`task-${taskId}`);
-                const urlElement = listItem?.querySelector('a.url');
-                if (urlElement && !data.url) {
-                    data.url = urlElement.href;
-                }
-                updateTaskStatus(data);
+                updateTaskStatus(data); // APIから返されたデータで直接更新
             } catch (error) {
                 console.error(`タスク[${taskId}]の状態取得に失敗:`, error);
             }
@@ -106,13 +99,12 @@ document.addEventListener('DOMContentLoaded', () => {
         let isTaskFinished = false;
         const deleteButtonHtml = `<button class="delete-btn" data-task-id="${task.task_id}">削除</button>`;
         
-        // URL情報をタスクオブジェクトまたは既存のDOM要素から取得
-        const urlElement = listItem.querySelector('a.url');
-        const originalUrl = task.url || (urlElement ? urlElement.href : '');
+        // APIから常にURLが返されるため、ロジックを簡素化
+        const originalUrl = task.url || 'URL不明';
 
         // リンクを生成するヘルパー関数
         const createVideoLink = (text, url) => {
-            if (url) {
+            if (url && url !== 'URL不明') {
                 return `<a href="${url}" class="url" target="_blank" rel="noopener noreferrer" title="${url}">${text}</a>`;
             }
             return `<span class="url">${text}</span>`;
@@ -134,7 +126,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             case 'FAILURE':
                 listItem.innerHTML = `
-                    ${createVideoLink(originalUrl || 'URL不明', originalUrl)}
+                    ${createVideoLink(originalUrl, originalUrl)}
                     <span class="status failure">
                         <div class="actions">
                             <span>失敗</span>
@@ -153,7 +145,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             default: // PENDING やその他の未知のステータス
                 listItem.innerHTML = `
-                    ${createVideoLink(originalUrl || 'URL不明', originalUrl)}
+                    ${createVideoLink(originalUrl, originalUrl)}
                     <span class="status">待機中...</span>`;
                 break;
         }
