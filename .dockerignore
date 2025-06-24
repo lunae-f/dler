@@ -1,0 +1,22 @@
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.egg-info
+
+# IDE / Editor
+.vscode/
+.idea/
+
+# Downloaded files
+downloads/
+
+# Local env
+.env
