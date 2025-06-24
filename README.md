@@ -42,8 +42,7 @@ docker compose down
 
 ## (メモ)テスト
 
-1. apiコンテナにexec
-2. コマンドを実行
+apiコンテナで以下のコマンドを実行
 
 ```sh
 playwright install
