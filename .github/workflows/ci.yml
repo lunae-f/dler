@@ -25,13 +25,13 @@ jobs:
 
     # 2. Docker Composeでアプリケーション全体をバックグラウンドで起動
     - name: Start services via Docker Compose
-      run: docker-compose up -d
+      run: docker compose up -d
 
     # 3. Playwrightのブラウザをインストール（テストコンテナ内）
     #    フロントエンドテストの準備
     - name: Install Playwright Browsers
-      run: docker-compose exec -T api playwright install --with-deps
+      run: docker compose exec -T api playwright install --with-deps
 
     # 4. コンテナ内でpytestを実行
     - name: Run tests inside container
-      run: docker-compose exec -T api pytest
+      run: docker compose exec -T api pytest
