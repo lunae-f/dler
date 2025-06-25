@@ -1,0 +1,63 @@
+# GitHub Actionsワークフローの名前
+name: CI/CD Pipeline
+
+# ワークフローが実行されるトリガーを定義
+on:
+  # mainブランチへのプッシュ時に実行
+  push:
+    branches: [ main ]
+  # mainブランチへのプルリクエスト時に実行
+  pull_request:
+    branches: [ main ]
+
+# 実行されるジョブを定義
+jobs:
+  # 'build'という名前のジョブ
+  build:
+    # 最新のUbuntu環境で実行
+    runs-on: ubuntu-latest
+
+    # ジョブの実行中に使用するサービス（コンテナ）を定義
+    services:
+      # Redisサービスを起動
+      redis:
+        image: redis:7-alpine # 使用するDockerイメージ
+        ports:
+          - 6379:6379 # ポートをマッピング
+        options: >- # Redisが起動するまで待機するためのヘルスチェック
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    # ジョブのステップを定義
+    steps:
+    # 1. リポジトリのコードをチェックアウト
+    - uses: actions/checkout@v4
+
+    # 2. Python 3.13をセットアップ
+    - name: Set up Python 3.13
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.13"
+
+    # 3. Pythonの依存関係をインストール
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r yt-dlp/requirements.txt
+
+    # 4. Playwright（フロントエンドテスト用）のブラウザをインストール
+    - name: Install Playwright Browsers
+      run: |
+        cd yt-dlp
+        playwright install --with-deps
+
+    # 5. テストを実行
+    - name: Run tests
+      # テスト実行時にRedisの接続先URLを環境変数として設定
+      env:
+        REDIS_URL: redis://localhost:6379/0
+      run: |
+        cd yt-dlp
+        pytest
