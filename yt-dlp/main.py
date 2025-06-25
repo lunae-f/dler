@@ -96,8 +96,7 @@ async def get_tasks_history():
             try:
                 url = json.loads(task_detail_json).get("url")
             except (json.JSONDecodeError, TypeError):
-                # このケースはヘルパー関数内でも処理されるが、念のため残す
-                logger.warning(f"Could not decode task detail for {task_id}")
+                pass  # このケースはヘルパー関数内で処理されるため、ここではログを残さない
         
         # ヘルパー関数を呼び出す
         detailed_tasks.append(_get_task_details(task_id, url))
