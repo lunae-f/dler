@@ -45,6 +45,35 @@ DOWNLOAD_DIR_ABSPATH = os.path.abspath(DOWNLOAD_DIR)
 class TaskRequest(BaseModel):
     url: HttpUrl
 
+# --- ヘルパー関数 ---
+def _get_task_details(task_id: str, url: str | None = None) -> dict:
+    """タスクIDから詳細な情報を取得するヘルパー関数。"""
+    task_result = AsyncResult(task_id, app=celery_app)
+    status = task_result.status
+    
+    # URLが引数で渡されない場合はRedisから取得
+    if url is None:
+        task_info_json = redis_client.hget(TASK_DETAILS_HASH_KEY, task_id)
+        if task_info_json:
+            try:
+                url = json.loads(task_info_json).get("url")
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(f"Could not decode task detail for {task_id}")
+
+    response_data = {"task_id": task_id, "status": status, "url": url}
+
+    if task_result.ready():
+        result = task_result.result
+        if status == 'SUCCESS':
+            response_data['details'] = result
+            response_data['download_url'] = f"/files/{task_id}"
+        elif status == 'FAILURE':
+            # エラー情報は文字列に変換して格納
+            response_data['details'] = str(result)
+            
+    return response_data
+
+# --- APIエンドポイント ---
 @app.get("/", response_class=HTMLResponse, summary="フロントエンドページを表示")
 async def read_root():
     """フロントエンドのメインページ (index.html) を返します。"""
@@ -59,29 +88,21 @@ async def get_tasks_history():
         return JSONResponse(content=[])
 
     tasks_details_json = redis_client.hmget(TASK_DETAILS_HASH_KEY, task_ids)
+    
     detailed_tasks = []
     for task_id, task_detail_json in zip(task_ids, tasks_details_json):
-        task_result = AsyncResult(task_id, app=celery_app)
-        
         url = None
         if task_detail_json:
             try:
                 url = json.loads(task_detail_json).get("url")
             except (json.JSONDecodeError, TypeError):
-                logger.warning(f"Could not decode task detail for {task_id}")
-
-        full_details = {
-            "task_id": task_id, "url": url, "status": task_result.status,
-        }
-        if task_result.successful():
-            full_details['details'] = task_result.result
-            full_details['download_url'] = f"/files/{task_id}"
-        elif task_result.failed():
-            full_details['details'] = str(task_result.info)
+                pass  # このケースはヘルパー関数内で処理されるため、ここではログを残さない
         
-        detailed_tasks.append(full_details)
+        # ヘルパー関数を呼び出す
+        detailed_tasks.append(_get_task_details(task_id, url))
         
     return JSONResponse(content=detailed_tasks)
+
 
 @app.post("/tasks", status_code=status.HTTP_202_ACCEPTED, summary="動画ダウンロードタスクを作成")
 async def create_download_task(request: TaskRequest):
@@ -113,23 +134,10 @@ def add_task_to_history(task_id: str, url: str):
 @app.get("/tasks/{task_id}", summary="タスクの状態を取得")
 async def get_task_status(task_id: str):
     """指定されたタスクIDの状態と詳細を取得します。"""
-    task_result = AsyncResult(task_id, app=celery_app)
-    status = task_result.status
+    # ヘルパー関数を呼び出すだけで済む
+    task_details = _get_task_details(task_id)
+    return JSONResponse(content=task_details)
 
-    task_info_json = redis_client.hget(TASK_DETAILS_HASH_KEY, task_id)
-    url = json.loads(task_info_json).get("url") if task_info_json else None
-    
-    response_data = {"task_id": task_id, "status": status, "url": url}
-    
-    if task_result.ready():
-        result = task_result.result
-        if status == 'SUCCESS':
-            response_data['details'] = result
-            response_data['download_url'] = f"/files/{task_id}"
-        elif status == 'FAILURE':
-            response_data['details'] = str(result)
-            
-    return JSONResponse(content=response_data)
 
 @app.get("/files/{task_id}", summary="ダウンロードしたファイルを取得")
 async def download_file(task_id: str):
