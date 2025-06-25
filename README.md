@@ -28,7 +28,7 @@ DLerは、ブラウザから動画のURLを送信することで、yt-dlp を利
 1. このリポジトリをクローンします。
 ```
 git clone https://github.com/lunae-f/dler.git
-cd dlerDocker
+cd dler
 ```
 
 2. コンテナをビルドして、バックグラウンドで起動します。
