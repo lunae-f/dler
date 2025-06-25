@@ -13,7 +13,8 @@ from logger_config import logger
 from celery_instance import celery_app  # 独立したインスタンスをインポート
 
 # pathlibを使ってダウンロードディレクトリを定義
-DOWNLOAD_DIR = Path("downloads")
+APP_DIR = Path(__file__).parent
+DOWNLOAD_DIR = APP_DIR / "downloads"
 
 
 def sanitize_filename(filename: str) -> str:
@@ -46,12 +47,11 @@ def download_video(self: Task, url: str) -> dict:
     task_id = self.request.id
     logger.info(f"[{task_id}] Starting download for URL: {url}")
     
-    # pathlibを使って出力テンプレートパスを構築
     output_template = DOWNLOAD_DIR / f'{task_id}.%(ext)s'
     
     ydl_opts = {
-        'outtmpl': str(output_template), # yt-dlpには文字列として渡す
-        'format': 'bestvideo[vcodec*=avc1]+bestaudio[acodec*=mp4a]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'outtmpl': str(output_template),
+        'format': 'bestvideo+bestaudio/best',
         'quiet': True,
         'no_warnings': True,
         'postprocessors': [{
@@ -61,20 +61,16 @@ def download_video(self: Task, url: str) -> dict:
     }
 
     try:
-        # ダウンロードディレクトリが存在しない場合は作成
         DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # 動画情報を抽出してダウンロードを実行
             info_dict = ydl.extract_info(url, download=True)
             filepath = ydl.prepare_filename(info_dict)
             
-            # ファイル名をサニタイズ
             title = info_dict.get('title', task_id)
             ext = info_dict.get('ext', 'mp4')
             original_filename = f"{sanitize_filename(title)}.{ext}"
 
-            # 結果を辞書として返す
             result_data = {
                 'filepath': filepath,
                 'original_filename': original_filename
@@ -84,7 +80,6 @@ def download_video(self: Task, url: str) -> dict:
             
     except yt_dlp.utils.DownloadError as e:
         logger.error(f"[{task_id}] Failed to download video from {url}. Reason: {e}")
-        # 例外を再送出することで、Celeryタスクの状態が'FAILURE'に設定される
         raise
     except Exception as e:
         logger.error(f"[{task_id}] An unexpected error occurred for URL {url}. Reason: {e}")

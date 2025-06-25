@@ -1,0 +1,37 @@
+# GitHub Actionsワークフローの名前
+name: CI/CD Pipeline
+
+# ワークフローが実行されるトリガーを定義
+on:
+  # mainブランチへのプッシュ時に実行
+  push:
+    branches: [ main ]
+  # mainブランチへのプルリクエスト時に実行
+  pull_request:
+    branches: [ main ]
+
+# 実行されるジョブを定義
+jobs:
+  # 'build'という名前のジョブ
+  build:
+    # 最新のUbuntu環境で実行
+    runs-on: ubuntu-latest
+
+    # ジョブのステップを定義
+    steps:
+    # 1. リポジトリのコードをチェックアウト
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # 2. Docker Composeでアプリケーション全体をバックグラウンドで起動
+    - name: Start services via Docker Compose
+      run: docker compose up -d
+
+    # 3. Playwrightのブラウザをインストール（テストコンテナ内）
+    #    フロントエンドテストの準備
+    - name: Install Playwright Browsers
+      run: docker compose exec -T api playwright install --with-deps
+
+    # 4. コンテナ内でpytestを実行
+    - name: Run tests inside container
+      run: docker compose exec -T api pytest
