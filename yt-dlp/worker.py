@@ -4,15 +4,16 @@
 Celeryタスクを含んでいます。タスクは非同期に実行され、結果はCeleryのバックエンド
 （この場合はRedis）に保存されます。
 """
-import os
 import re
+from pathlib import Path
 from celery import Task
 import yt_dlp
 
 from logger_config import logger
 from celery_instance import celery_app  # 独立したインスタンスをインポート
 
-DOWNLOAD_DIR = "downloads"
+# pathlibを使ってダウンロードディレクトリを定義
+DOWNLOAD_DIR = Path("downloads")
 
 
 def sanitize_filename(filename: str) -> str:
@@ -45,8 +46,11 @@ def download_video(self: Task, url: str) -> dict:
     task_id = self.request.id
     logger.info(f"[{task_id}] Starting download for URL: {url}")
     
+    # pathlibを使って出力テンプレートパスを構築
+    output_template = DOWNLOAD_DIR / f'{task_id}.%(ext)s'
+    
     ydl_opts = {
-        'outtmpl': os.path.join(DOWNLOAD_DIR, f'{task_id}.%(ext)s'),
+        'outtmpl': str(output_template), # yt-dlpには文字列として渡す
         'format': 'bestvideo[vcodec*=avc1]+bestaudio[acodec*=mp4a]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'quiet': True,
         'no_warnings': True,
@@ -57,6 +61,9 @@ def download_video(self: Task, url: str) -> dict:
     }
 
     try:
+        # ダウンロードディレクトリが存在しない場合は作成
+        DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             # 動画情報を抽出してダウンロードを実行
             info_dict = ydl.extract_info(url, download=True)
