@@ -1,4 +1,6 @@
 # DLer
+[![CI/CD Pipeline](https://github.com/lunae-f/dler/actions/workflows/ci.yml/badge.svg)](https://github.com/lunae-f/dler/actions/workflows/ci.yml)
+
 DLerは、ブラウザから動画のURLを送信することで、yt-dlp を利用してサーバーサイドで動画をダウンロードするためのWebアプリケーションです。
 
 ## 主な機能
