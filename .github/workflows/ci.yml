@@ -1,35 +1,29 @@
-# ワークフローの名前
-name: CI/CD - Test, Build and Push Docker Image
+# GitHub Actionsワークフローの名前
+name: CI Pipeline
 
-# ワークフローが実行されるトリガー
+# ワークフローが実行されるトリガーを定義
 on:
   # mainブランチへのプッシュ時に実行
   push:
-    branches: [ "main" ]
+    branches: [ main ]
   # mainブランチへのプルリクエスト時に実行
   pull_request:
-    branches: [ "main" ]
-
-# ワークフロー全体の環境変数を定義
-env:
-  # GitHub Container Registry のURL
-  REGISTRY: ghcr.io
-  # イメージ名を定義。GITHUB_REPOSITORYは 'ユーザー名/リポジトリ名' の形式
-  IMAGE_NAME: ${{ github.repository }}
-
+    branches: [ main ]
 
 # 実行されるジョブを定義
 jobs:
-  # 'test' という名前のテストジョブ
-  test:
+  # 'build'という名前のジョブ
+  build:
+    # 最新のUbuntu環境で実行
     runs-on: ubuntu-latest
+
     # ジョブのステップを定義
     steps:
     # 1. リポジトリのコードをチェックアウト
-    - name: Checkout repository
+    - name: Checkout code
       uses: actions/checkout@v4
 
-    # 2. Playwrightのブラウザをキャッシュ
+    # 2. Playwrightのブラウザをキャッシュするステップ
     - name: Cache Playwright browsers
       id: cache-playwright
       uses: actions/cache@v4
@@ -39,72 +33,45 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-playwright-
 
-    # 3. Docker Composeでサービスをバックグラウンド起動
+    # 3. Docker Composeでアプリケーション全体をバックグラウンドで起動
     - name: Start services via Docker Compose
       run: docker compose up -d
 
-    # 4. キャッシュしたブラウザをコンテナにコピー
+    # 4. (キャッシュ復元時のみ) キャッシュしたブラウザをコンテナにコピー
     - name: Copy cached browsers to container
       if: steps.cache-playwright.outputs.cache-hit == 'true'
       run: |
         CONTAINER_ID=$(docker compose ps -q api)
+        if [ -z "$CONTAINER_ID" ]; then
+          echo "Error: Container 'api' is not running."
+          exit 1
+        fi
         docker exec $CONTAINER_ID mkdir -p /root/.cache
         docker cp ~/.cache/ms-playwright $CONTAINER_ID:/root/.cache/
+        echo "Copied cached browsers to container ${CONTAINER_ID}."
 
-    # 5. Playwrightのブラウザをインストール
-    - name: Install Playwright Browsers in container
+    # 5. Playwrightのブラウザをインストール（テストコンテナ内）
+    - name: Install Playwright Browsers
       run: docker compose exec -T api playwright install --with-deps
 
     # 6. コンテナ内でpytestを実行
     - name: Run tests inside container
       run: docker compose exec -T api pytest
 
-  # 'build-and-push' という名前のビルド＆プッシュジョブ
-  build-and-push:
-    # 'test'ジョブが成功した場合にのみ実行
-    needs: test
-    runs-on: ubuntu-latest
-    # mainブランチへのプッシュイベントの場合のみ実行（プルリクエストでは実行しない）
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # 7. [修正] キャッシュ保存のため、コンテナからブラウザをコピー
+    #   このステップをジョブの最後に追加することで、コンテナ内にインストールされた
+    #   ブラウザのファイルがホストにコピーされ、キャッシュアクションがそれを見つけて保存できるようになります。
+    - name: Copy browsers from container for caching
+      if: always()
+      run: |
+        CONTAINER_ID=$(docker compose ps -q api)
+        if [ -n "$CONTAINER_ID" ]; then
+          # ホスト側のキャッシュ用ディレクトリが存在することを確認
+          mkdir -p ~/.cache
+          # コンテナからホストへコピー
+          docker cp $CONTAINER_ID:/root/.cache/ms-playwright ~/.cache/
+          echo "Copied browsers from container to host for caching."
+        else
+          echo "Container 'api' not running, skipping copy."
+        fi
 
-    # GitHubリポジトリへの書き込み権限を付与
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-    # 1. リポジトリのコードをチェックアウト
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    # 2. GitHub Container Registry (ghcr.io) へログイン
-    - name: Log in to the Container registry
-      uses: docker/login-action@v3
-      with:
-        registry: ${{ env.REGISTRY }}
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
-    # 3. Dockerイメージのメタデータ（タグやラベル）を抽出
-    # Gitのブランチやタグ情報から、latest, v1.0.0のようなタグを自動生成
-    - name: Extract metadata for Docker
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-        # OCI標準フォーマットでラベルを付与
-        labels: |
-          org.opencontainers.image.title=dler
-          org.opencontainers.image.description=A web application to download videos using yt-dlp.
-          org.opencontainers.image.vendor=${{ github.repository_owner }}
-
-    # 4. Dockerイメージをビルドし、GitHub Container Registryにプッシュ
-    - name: Build and push Docker image
-      uses: docker/build-push-action@v5
-      with:
-        # Dockerfileがあるディレクトリのパス
-        context: ./yt-dlp
-        push: true
-        # 'meta'ステップで生成されたタグとラベルを使用
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
