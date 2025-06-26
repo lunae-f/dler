@@ -50,6 +50,10 @@ jobs:
       if: steps.cache-playwright.outputs.cache-hit == 'true'
       run: |
         CONTAINER_ID=$(docker compose ps -q api)
+        if [ -z "$CONTAINER_ID" ]; then
+          echo "Error: Container ID is empty. Ensure the container is running."
+          exit 1
+        fi
         docker exec $CONTAINER_ID mkdir -p /root/.cache
         docker cp ~/.cache/ms-playwright $CONTAINER_ID:/root/.cache/
         echo "Copied cached browsers to container ${CONTAINER_ID}."
