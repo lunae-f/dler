@@ -42,7 +42,7 @@ COPY --from=builder /opt/venv /opt/venv
 COPY . .
 
 # ダウンロードディレクトリを作成し、所有者をappuserに変更
-RUN mkdir -p /app/downloads && chown -R appuser:appuser /app
+RUN mkdir -p /app/downloads && chown -R appuser:appuser /app/downloads
 
 # ユーザーをappuserに切り替え
 USER appuser
