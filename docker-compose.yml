@@ -2,7 +2,6 @@
 version: '3.8'
 
 # 共通の環境変数を定義するYAMLアンカー
-# `&common-environment` という名前で環境変数のブロックを定義します。
 x-common-environment: &common-environment
   environment:
     - REDIS_URL=redis://redis:6379/0
@@ -11,47 +10,53 @@ x-common-environment: &common-environment
 services:
   # 1. APIサーバー (FastAPI)
   api:
-    build: ./yt-dlp
+    # buildコンテキストとDockerfileの場所を明示的に指定
+    build:
+      context: ./yt-dlp
+      dockerfile: Dockerfile
+    # uvicornの--reloadは開発時には便利だが、本番イメージでは不要
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     restart: unless-stopped
     ports:
       - "8000:8000"
     volumes:
+      # ソースコードの変更を即座に反映させるためのマウント
       - ./yt-dlp:/app
-      - ./yt-dlp/downloads:/app/downloads
-    # `<<: *common-environment` で、上で定義したアンカーの内容を展開・継承します。
+    # 共通の環境変数を継承
     <<: *common-environment
     depends_on:
       redis:
-        condition: service_healthy # redisのヘルスチェックが通るまで待機
+        condition: service_healthy
 
   # 2. バックグラウンドワーカー (Celery)
   worker:
-    build: ./yt-dlp
+    # APIサービスと同じイメージを使用するため、ビルドコンテキストを共有
+    build:
+      context: ./yt-dlp
+      dockerfile: Dockerfile
     command: celery -A celery_instance.celery_app worker --loglevel=info
     restart: unless-stopped
     volumes:
+      # ソースコードの変更を即座に反映させるためのマウント
       - ./yt-dlp:/app
-      - ./yt-dlp/downloads:/app/downloads
-    # こちらでも同じようにアンカーを展開します。
+    # 共通の環境変数を継承
     <<: *common-environment
     depends_on:
       redis:
-        condition: service_healthy # redisのヘルスチェックが通るまで待機
+        condition: service_healthy
 
   # 3. メッセージブローカー (Redis)
   redis:
     image: "redis:7-alpine"
     restart: unless-stopped
     volumes:
-      - redis_data:/data # Redisのデータを永続化するためのボリューム
+      - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"] # 'ping'コマンドでRedisの生死を確認
-      interval: 10s                     # 10秒ごとに確認
-      timeout: 5s                       # 5秒以内に応答がなければタイムアウト
-      retries: 5                        # 5回リトライして失敗したらunhealthyと判断
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 # 永続化に使用する名前付きボリュームを定義
 volumes:
   redis_data:
-
