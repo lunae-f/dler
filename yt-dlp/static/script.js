@@ -226,6 +226,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return button;
     }
 
-    // 初期化
+    // --- 初期化処理 ---
     loadInitialTasks();
 });
