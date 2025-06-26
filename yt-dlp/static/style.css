@@ -1,104 +1,6 @@
-/* --- テーマ変数定義 (ダークモード) --- */
-:root {
-    --bg-color: #1a1a2e;
-    --container-bg-color: #16213e;
-    --text-color: #e0e0e0;
-    --heading-color: #c7c7c7;
-    --input-bg-color: #0f3460;
-    --input-border-color: #4f4f4f;
-    --task-bg-color: #0f3460;
-    --link-color: #c7c7c7;
-    --link-hover-color: #53a8e2;
-    --footer-text-color: #a0a0a0;
-    --footer-link-color: #c7c7c7;
-    --shadow-color: rgba(0, 0, 0, 0.2);
-    --button-bg-color: #1f4287;
-    --button-hover-bg-color: #27496d;
-    --success-color: #32de84;
-    --failure-color: #ff6b6b;
-    --processing-color: #f9a826;
-}
-
-/* --- 基本スタイル --- */
-body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    background-color: var(--bg-color);
-    color: var(--text-color);
-    margin: 0;
-    padding: 20px;
-    transition: background-color 0.3s, color 0.3s;
-}
-
-.container {
-    max-width: 800px;
-    margin: 0 auto;
-    background: var(--container-bg-color);
-    padding: 20px 40px;
-    border-radius: 8px;
-    box-shadow: 0 2px 10px var(--shadow-color);
-    transition: background-color 0.3s;
-}
-
-.app-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1rem;
-}
-
-h1, h2 {
-    color: var(--heading-color);
-}
-
-#url-form {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 20px;
-}
-
-#video-url {
-    flex-grow: 1;
-    padding: 10px;
-    border: 1px solid var(--input-border-color);
-    background-color: var(--input-bg-color);
-    color: var(--text-color);
-    border-radius: 4px;
-    font-size: 16px;
-}
-
-button {
-    padding: 10px 20px;
-    background-color: var(--button-bg-color);
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 16px;
-    transition: background-color 0.2s;
-}
-
-button:hover {
-    background-color: var(--button-hover-bg-color);
-}
-
-#tasks-list {
-    list-style: none;
-    padding: 0;
-}
-
-#tasks-list li {
-    background-color: var(--task-bg-color);
-    padding: 15px;
-    border-radius: 4px;
-    margin-bottom: 10px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    overflow: hidden;
-}
-
+/* リンクスタイル */
 #tasks-list li .url {
-    color: var(--link-color);
+    color: #2c3e50;
     text-decoration: none;
     white-space: nowrap;
     overflow: hidden;
@@ -111,58 +13,111 @@ button:hover {
 
 #tasks-list li a.url:hover {
     text-decoration: underline;
-    color: var(--link-hover-color);
+    color: #3498db;
 }
 
+/* 基本スタイル */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background-color: #f4f7f6;
+    color: #333;
+    margin: 0;
+    padding: 20px;
+}
+.container {
+    max-width: 800px;
+    margin: 0 auto;
+    background: #fff;
+    padding: 20px 40px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+}
+h1, h2 {
+    color: #2c3e50;
+}
+#url-form {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+#video-url {
+    flex-grow: 1;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 16px;
+}
+button {
+    padding: 10px 20px;
+    background-color: #3498db;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.2s;
+}
+button:hover {
+    background-color: #2980b9;
+}
+#tasks-list {
+    list-style: none;
+    padding: 0;
+}
+#tasks-list li {
+    background-color: #ecf0f1;
+    padding: 15px;
+    border-radius: 4px;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    overflow: hidden;
+}
 #tasks-list li .status {
     font-weight: bold;
     text-align: right;
     flex-shrink: 0;
 }
-
 .actions {
     display: flex;
     align-items: center;
     gap: 10px;
 }
-
 button.delete-btn {
-    background-color: var(--failure-color);
+    background-color: #e74c3c;
+    padding: 8px 15px;
 }
 button.delete-btn:hover {
-    opacity: 0.8;
+    background-color: #c0392b;
 }
-
-.status.processing { color: var(--processing-color); }
-.status.success { color: var(--success-color); }
-.status.failure { color: var(--failure-color); }
+.status.processing { color: #f39c12; }
+.status.success { color: #2ecc71; }
+.status.failure { color: #e74c3c; }
 .status.failure .actions span {
-    color: var(--failure-color);
+    color: #e74c3c;
 }
-
 a.download-link {
     display: inline-block;
     padding: 8px 15px;
-    background-color: var(--success-color);
+    background-color: #2ecc71;
     color: white;
     text-decoration: none;
     border-radius: 4px;
     transition: background-color 0.2s;
 }
 a.download-link:hover {
-    opacity: 0.8;
+    background-color: #27ae60;
 }
-
 footer {
     text-align: center;
     margin-top: 30px;
     padding: 20px 0;
     font-size: 14px;
-    color: var(--footer-text-color);
+    color: #888;
 }
-
 footer a {
-    color: var(--footer-link-color);
+    color: #555;
     font-weight: bold;
     text-decoration: none;
 }
