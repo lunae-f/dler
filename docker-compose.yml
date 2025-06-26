@@ -1,6 +1,12 @@
 # Docker Composeのバージョンを指定
 version: '3.8'
 
+# 共通の環境変数を定義するYAMLアンカー
+# `&common-environment` という名前で環境変数のブロックを定義します。
+x-common-environment: &common-environment
+  environment:
+    - REDIS_URL=redis://redis:6379/0
+
 # 起動するサービス（コンテナ）を定義
 services:
   # 1. APIサーバー (FastAPI)
@@ -13,8 +19,8 @@ services:
     volumes:
       - ./yt-dlp:/app
       - ./yt-dlp/downloads:/app/downloads
-    environment:
-      - REDIS_URL=redis://redis:6379/0
+    # `<<: *common-environment` で、上で定義したアンカーの内容を展開・継承します。
+    <<: *common-environment
     depends_on:
       redis:
         condition: service_healthy # redisのヘルスチェックが通るまで待機
@@ -27,8 +33,8 @@ services:
     volumes:
       - ./yt-dlp:/app
       - ./yt-dlp/downloads:/app/downloads
-    environment:
-      - REDIS_URL=redis://redis:6379/0
+    # こちらでも同じようにアンカーを展開します。
+    <<: *common-environment
     depends_on:
       redis:
         condition: service_healthy # redisのヘルスチェックが通るまで待機
@@ -48,3 +54,4 @@ services:
 # 永続化に使用する名前付きボリュームを定義
 volumes:
   redis_data:
+
