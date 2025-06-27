@@ -54,4 +54,4 @@ pytest
 
 ## ライセンス
 このプロジェクトは MIT License の下で公開されています。<br>
-This project was created with ❤️‍🔥 by Lunae.
+This project is released under the MIT License.
