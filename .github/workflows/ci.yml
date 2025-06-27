@@ -1,5 +1,5 @@
 # GitHub Actionsワークフローの名前
-name: CI Pipeline
+name: CI
 
 # ワークフローが実行されるトリガーを定義
 on:
