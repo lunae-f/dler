@@ -12,8 +12,8 @@ on:
 
 # 実行されるジョブを定義
 jobs:
-  # 'build'という名前のジョブ
-  build:
+  # 'test-api'という名前に変更
+  test-api:
     # 最新のUbuntu環境で実行
     runs-on: ubuntu-latest
 
@@ -23,55 +23,14 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    # 2. Playwrightのブラウザをキャッシュするステップ
-    - name: Cache Playwright browsers
-      id: cache-playwright
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/ms-playwright
-        key: ${{ runner.os }}-playwright-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-playwright-
-
-    # 3. Docker Composeでアプリケーション全体をバックグラウンドで起動
+    # 2. Docker Composeでアプリケーション全体をバックグラウンドで起動
     - name: Start services via Docker Compose
       run: docker compose up -d
 
-    # 4. (キャッシュ復元時のみ) キャッシュしたブラウザをコンテナにコピー
-    - name: Copy cached browsers to container
-      if: steps.cache-playwright.outputs.cache-hit == 'true'
-      run: |
-        CONTAINER_ID=$(docker compose ps -q api)
-        if [ -z "$CONTAINER_ID" ]; then
-          echo "Error: Container 'api' is not running."
-          exit 1
-        fi
-        docker exec $CONTAINER_ID mkdir -p /root/.cache
-        docker cp ~/.cache/ms-playwright $CONTAINER_ID:/root/.cache/
-        echo "Copied cached browsers to container ${CONTAINER_ID}."
+    # 3. 依存関係のインストールが完了するまで少し待機
+    - name: Wait for services to be ready
+      run: sleep 10
 
-    # 5. Playwrightのブラウザをインストール（テストコンテナ内）
-    - name: Install Playwright Browsers
-      run: docker compose exec -T api playwright install --with-deps
-
-    # 6. コンテナ内でpytestを実行
-    - name: Run tests inside container
+    # 4. コンテナ内でpytestを実行 (APIテストのみが実行される)
+    - name: Run API tests inside container
       run: docker compose exec -T api pytest
-
-    # 7. [修正] キャッシュ保存のため、コンテナからブラウザをコピー
-    #   このステップをジョブの最後に追加することで、コンテナ内にインストールされた
-    #   ブラウザのファイルがホストにコピーされ、キャッシュアクションがそれを見つけて保存できるようになります。
-    - name: Copy browsers from container for caching
-      if: always()
-      run: |
-        CONTAINER_ID=$(docker compose ps -q api)
-        if [ -n "$CONTAINER_ID" ]; then
-          # ホスト側のキャッシュ用ディレクトリが存在することを確認
-          mkdir -p ~/.cache
-          # コンテナからホストへコピー
-          docker cp $CONTAINER_ID:/root/.cache/ms-playwright ~/.cache/
-          echo "Copied browsers from container to host for caching."
-        else
-          echo "Container 'api' not running, skipping copy."
-        fi
-
