@@ -16,8 +16,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # ダウンロードファイルをapiとworkerサービスで共有するために必要
-      - downloads_data:/app/downloads
+      - ./downloads:/app/downloads
     <<: *common-environment
     depends_on:
       redis:
@@ -29,8 +28,7 @@ services:
     command: celery -A celery_instance.celery_app worker --loglevel=info
     restart: unless-stopped
     volumes:
-      # ダウンロードファイルをapiとworkerサービスで共有するために必要
-      - downloads_data:/app/downloads
+      - ./downloads:/app/downloads
     <<: *common-environment
     depends_on:
       redis:
@@ -45,7 +43,3 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
-# サービス間で共有する名前付きボリュームを定義
-volumes:
-  downloads_data:
