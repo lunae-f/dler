@@ -52,10 +52,6 @@ button:disabled {
     padding: 15px;
     border-radius: 4px;
     display: none; /* 初期状態では非表示 */
-    /* ★ 変更点: 横並びにするためのスタイル */
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
 }
 .status.processing {
     color: #f39c12;
@@ -66,13 +62,6 @@ button:disabled {
     color: #e74c3c;
     background-color: #fdedec;
     border: 1px solid #e74c3c;
-}
-
-/* ★ 追加: タスクID用のスタイル */
-#task-id-display {
-    font-size: 0.8em;
-    color: #7f8c8d;
-    font-family: monospace;
 }
 
 #download-link-container {
