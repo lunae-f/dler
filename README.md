@@ -28,13 +28,15 @@ git clone https://github.com/lunae-f/dler.git
 cd dler
 ```
 
-2. コンテナをビルドして、バックグラウンドで起動します。
+2. `Caddyfile`の`example.com`を使用するドメインに変更する
+
+3. コンテナをビルドして、バックグラウンドで起動します。
 ```
 docker compose up -d --build
 ```
 
-3. ブラウザで http://localhost:8000 にアクセスします。
-4. アプリケーションを停止する場合は、以下のコマンドを実行します。（ダウンロードしたファイルも消えます！）
+4. ブラウザで http://localhost:8000 にアクセスします。
+5. アプリケーションを停止する場合は、以下のコマンドを実行します。（ダウンロードしたファイルも消えます！）
 ```
 docker compose down --volumes
 ```
