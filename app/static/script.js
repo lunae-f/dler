@@ -4,6 +4,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const submitButton = form.querySelector('button[type="submit"]');
     const statusContainer = document.getElementById('status-container');
     const downloadLinkContainer = document.getElementById('download-link-container');
+    const statusMessageEl = document.getElementById('status-message');
+    const taskIdDisplayEl = document.getElementById('task-id-display');
 
     let pollingInterval = null;
 
@@ -18,7 +20,6 @@ document.addEventListener('DOMContentLoaded', () => {
         // 以前の表示をクリアし、フォームを無効化
         clearStatusAndLink();
         setFormDisabled(true);
-        showStatus('処理中...', 'processing');
 
         try {
             const response = await fetch('/tasks', {
@@ -28,6 +29,8 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             if (!response.ok) throw new Error('タスクの作成に失敗しました。');
             const data = await response.json();
+            // ★ 変更点: showStatusにタスクIDを渡す
+            showStatus('処理中...', 'processing', data.task_id);
             startPolling(data.task_id);
         } catch (error) {
             console.error(error);
@@ -91,13 +94,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 break;
             case 'FAILURE':
                 stopPolling();
-                showStatus(`失敗しました: ${task.details || '不明なエラー'}`, 'failure');
+                showStatus(`失敗しました: ${task.details || '不明なエラー'}`, 'failure', task.task_id);
                 setFormDisabled(false);
                 break;
             case 'PROCESSING':
             case 'STARTED':
             case 'PENDING':
-                showStatus('処理中...', 'processing');
+                // ★ 変更点: ポーリング中もタスクIDを表示
+                showStatus('処理中...', 'processing', task.task_id);
                 break;
         }
     }
@@ -111,38 +115,30 @@ document.addEventListener('DOMContentLoaded', () => {
         const downloadUrl = task.download_url;
         const taskId = task.task_id;
 
-        // コンテナ要素を作成
         const container = document.createElement('div');
         container.className = 'download-action-container';
 
-        // ダウンロードリンクを作成
         const link = document.createElement('a');
         link.href = downloadUrl;
         link.textContent = `✅ ${filename} をダウンロード`;
         link.className = 'download-link';
         link.setAttribute('download', filename);
 
-        // 削除ボタンを作成
         const deleteButton = document.createElement('button');
-        deleteButton.textContent = 'サーバーから削除';
+        deleteButton.textContent = '🗑️ 削除';
         deleteButton.className = 'delete-btn';
 
-        // ★★★ 変更点 ★★★
-        // 削除ボタンにクリックイベントを追加
         deleteButton.addEventListener('click', async () => {
             if (confirm('このファイルをサーバーから削除しますか？\n（ダウンロードが完了していることを確認してください）')) {
                 await deleteTaskFromServer(taskId);
-                // UIからコンテナ全体を削除
                 container.remove();
                 showStatus('ファイルはサーバーから削除されました。', 'processing');
             }
         });
 
-        // 要素をコンテナに追加
         container.appendChild(link);
         container.appendChild(deleteButton);
         
-        // コンテナをDOMに追加
         downloadLinkContainer.appendChild(container);
     }
 
@@ -162,16 +158,22 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-
     /**
      * ステータスメッセージを表示します。
      * @param {string} message - 表示するメッセージ
      * @param {'processing'|'failure'} type - メッセージの種類
+     * @param {string|null} taskId - 表示するタスクID (オプション)
      */
-    function showStatus(message, type) {
-        statusContainer.textContent = message;
+    function showStatus(message, type, taskId = null) {
+        statusContainer.style.display = 'flex';
         statusContainer.className = `status ${type}`;
-        statusContainer.style.display = 'block';
+        statusMessageEl.textContent = message;
+        
+        if (taskId) {
+            taskIdDisplayEl.textContent = `Task ID: ${taskId}`;
+        } else {
+            taskIdDisplayEl.textContent = ''; // IDがない場合はクリア
+        }
     }
 
     /**
@@ -179,7 +181,8 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     function clearStatusAndLink() {
         statusContainer.style.display = 'none';
-        statusContainer.textContent = '';
+        statusMessageEl.textContent = '';
+        taskIdDisplayEl.textContent = '';
         downloadLinkContainer.innerHTML = '';
     }
 

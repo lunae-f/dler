@@ -1,44 +1,40 @@
-# docker-compose.yml
-
+# Docker Composeのバージョンを指定
 version: '3.8'
 
-services:
-  caddy:
-    image: caddy:latest
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
-      # Caddyのデータを永続化するためのボリューム（証明書など）
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - api
+# 共通の環境変数を定義するYAMLアンカー
+x-common-environment: &common-environment
+  environment:
+    - REDIS_URL=redis://redis:6379/0
 
+# 起動するサービス（コンテナ）を定義
+services:
+  # 1. APIサーバー (FastAPI)
   api:
     build: ./app
     command: uvicorn main:app --host 0.0.0.0 --port 8000
     restart: unless-stopped
+    ports:
+      - "8000:8000"
     volumes:
       - ./downloads:/app/downloads
-    environment:
-      - REDIS_URL=redis://redis:6379/0
+    <<: *common-environment
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
 
+  # 2. バックグラウンドワーカー (Celery)
   worker:
     build: ./app
     command: celery -A celery_instance.celery_app worker --loglevel=info
     restart: unless-stopped
     volumes:
       - ./downloads:/app/downloads
-    environment:
-      - REDIS_URL=redis://redis:6379/0
+    <<: *common-environment
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
 
+  # 3. メッセージブローカー (Redis)
   redis:
     image: "redis:7-alpine"
     restart: unless-stopped
@@ -47,7 +43,3 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
-volumes:
-  caddy_data:
-  caddy_config:
