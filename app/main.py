@@ -6,10 +6,10 @@
 
 - /: フロントエンドのHTMLページを提供
 - /tasks: ダウンロードタスクの作成と状態取得
-- /files: ダウンロード済みファイルの提供
+- /files: ダウンロード済みファイルの提供・削除
 """
 import os
-import json
+import shutil
 from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -26,7 +26,7 @@ from worker import download_video
 app = FastAPI(
     title="DLer API",
     description="yt-dlpで動画をダウンロードするAPI",
-    version="2.0.0" # Version Bump
+    version="2.2.2" # Version Bump
 )
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -70,9 +70,14 @@ async def read_root():
 async def create_download_task(request: TaskRequest):
     """新しい動画ダウンロードタスクを作成します。"""
     original_url = str(request.url)
-    task = download_video.delay(original_url)
-    logger.info(f"Task {task.id} created for URL: {original_url}")
-    return {"task_id": task.id, "url": original_url}
+    
+    # URLをサニタイズし、'&'以降のパラメータを削除
+    sanitized_url = original_url.split('&')[0]
+    
+    task = download_video.delay(sanitized_url)
+    logger.info(f"Task {task.id} created for URL: {sanitized_url}")
+    
+    return {"task_id": task.id, "url": sanitized_url}
 
 @app.get("/tasks/{task_id}", summary="タスクの状態を取得")
 async def get_task_status(task_id: str):
@@ -109,7 +114,7 @@ async def download_file(task_id: str):
     original_filename = result.get('original_filename', f'{task_id}.mp4')
     return FileResponse(path=requested_path_abspath, filename=original_filename, media_type='application/octet-stream')
 
-@app.delete("/tasks/{task_id}", status_code=status.HTTP_200_OK, summary="タスクと関連ファイルを削除")
+@app.delete("/tasks/{task_id}", status_code=status.HTTP_200_OK, summary="個別のタスクと関連ファイルを削除")
 async def delete_task(task_id: str):
     """タスクと関連するダウンロード済みファイルを削除します。"""
     task_result = AsyncResult(task_id, app=celery_app)
