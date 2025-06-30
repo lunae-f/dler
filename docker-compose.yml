@@ -14,7 +14,7 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 8000
     restart: unless-stopped
     ports:
-      - "8000:80"
+      - "8000:8000"
     volumes:
       - ./downloads:/app/downloads
     <<: *common-environment
