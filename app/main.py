@@ -10,7 +10,7 @@
 """
 import os
 import shutil
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, Depends
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, HttpUrl
@@ -26,7 +26,7 @@ from worker import download_video
 app = FastAPI(
     title="DLer API",
     description="yt-dlpで動画をダウンロードするAPI",
-    version="2.2.2" # Version Bump
+    version="2.2.3" # Version Bump
 )
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -60,12 +60,14 @@ def _get_task_details(task_id: str) -> dict:
     return response_data
 
 # --- APIエンドポイント ---
+# [修正] async def -> def に変更。ファイルI/Oはブロッキング処理のため。
 @app.get("/", response_class=HTMLResponse, summary="フロントエンドページを表示")
-async def read_root():
+def read_root():
     """フロントエンドのメインページ (index.html) を返します。"""
     with open("static/index.html") as f:
         return HTMLResponse(content=f.read(), status_code=200)
 
+# [変更なし] Celeryタスクの起動(.delay)はノンブロッキングなため、async defのままで問題ありません。
 @app.post("/tasks", status_code=status.HTTP_202_ACCEPTED, summary="動画ダウンロードタスクを作成")
 async def create_download_task(request: TaskRequest):
     """新しい動画ダウンロードタスクを作成します。"""
@@ -79,8 +81,9 @@ async def create_download_task(request: TaskRequest):
     
     return {"task_id": task.id, "url": sanitized_url}
 
+# [修正] async def -> def に変更。task_result.backendやヘルパー関数内のresult取得がブロッキングの可能性があるため。
 @app.get("/tasks/{task_id}", summary="タスクの状態を取得")
-async def get_task_status(task_id: str):
+def get_task_status(task_id: str):
     """指定されたタスクIDの状態と詳細を取得します。"""
     task_result = AsyncResult(task_id, app=celery_app)
     # Celeryバックエンドにタスクが存在しない場合も考慮
@@ -91,8 +94,9 @@ async def get_task_status(task_id: str):
     return JSONResponse(content=task_details)
 
 
+# [修正] async def -> def に変更。task_result.get()やos.path.existsがブロッキング処理のため。
 @app.get("/files/{task_id}", summary="ダウンロードしたファイルを取得")
-async def download_file(task_id: str):
+def download_file(task_id: str):
     """ダウンロード済みのファイルを取得します。"""
     task_result = AsyncResult(task_id, app=celery_app)
     if not task_result.successful():
@@ -114,8 +118,9 @@ async def download_file(task_id: str):
     original_filename = result.get('original_filename', f'{task_id}.mp4')
     return FileResponse(path=requested_path_abspath, filename=original_filename, media_type='application/octet-stream')
 
+# [修正] async def -> def に変更。os.path.existsやos.removeがブロッキング処理のため。
 @app.delete("/tasks/{task_id}", status_code=status.HTTP_200_OK, summary="個別のタスクと関連ファイルを削除")
-async def delete_task(task_id: str):
+def delete_task(task_id: str):
     """タスクと関連するダウンロード済みファイルを削除します。"""
     task_result = AsyncResult(task_id, app=celery_app)
 
