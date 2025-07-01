@@ -12,7 +12,10 @@
         <p>動画のURLを入力してダウンロードを開始します。</p>
         <form id="url-form">
             <input type="url" id="video-url" placeholder="https://www.youtube.com/watch?v=..." required>
-            <button type="submit">ダウンロード開始</button>
+            <div class="button-group">
+                <button type="button" id="download-video-btn" class="btn-video">🎬 動画をダウンロード</button>
+                <button type="button" id="download-audio-btn" class="btn-audio">🎵 音声をダウンロード</button>
+            </div>
         </form>
         <div id="status-container">
             <span id="status-message"></span>

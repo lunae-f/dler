@@ -19,40 +19,61 @@ h1, h2 {
 }
 #url-form {
     display: flex;
-    gap: 10px;
+    flex-direction: column; /* [変更] 縦並びに変更 */
+    gap: 15px; /* [変更] ボタンとの間隔を調整 */
     margin-bottom: 20px;
 }
 #video-url {
     flex-grow: 1;
-    padding: 10px;
+    padding: 12px; /* 少し大きく */
     border: 1px solid #ccc;
     border-radius: 4px;
     font-size: 16px;
 }
 button {
-    padding: 10px 20px;
-    background-color: #3498db;
+    padding: 12px 20px; /* 少し大きく */
     color: white;
     border: none;
     border-radius: 4px;
     cursor: pointer;
     font-size: 16px;
     transition: background-color 0.2s;
+    flex-grow: 1; /* ボタンが均等に広がるように */
 }
 button:hover {
-    background-color: #2980b9;
+    opacity: 0.9;
 }
 button:disabled {
     background-color: #bdc3c7;
     cursor: not-allowed;
 }
 
+/* [追加] ボタングループのスタイル */
+.button-group {
+    display: flex;
+    gap: 10px;
+}
+
+/* [追加] 動画・音声ボタンの個別スタイル */
+.btn-video {
+    background-color: #3498db; /* 青色 */
+}
+.btn-video:hover {
+    background-color: #2980b9;
+}
+.btn-audio {
+    background-color: #1abc9c; /* 緑色 */
+}
+.btn-audio:hover {
+    background-color: #16a085;
+}
+
+
 #status-container {
     margin-top: 20px;
     padding: 15px;
     border-radius: 4px;
     display: none; /* 初期状態では非表示 */
-    /* ★ 変更点: 横並びにするためのスタイル */
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -68,7 +89,6 @@ button:disabled {
     border: 1px solid #e74c3c;
 }
 
-/* ★ 追加: タスクID用のスタイル */
 #task-id-display {
     font-size: 0.8em;
     color: #7f8c8d;
@@ -79,7 +99,6 @@ button:disabled {
     margin-top: 20px;
 }
 
-/* ダウンロードアクションのコンテナ */
 .download-action-container {
     display: flex;
     align-items: center;
@@ -90,7 +109,6 @@ button:disabled {
     border: 1px solid #2ecc71;
 }
 
-/* コンテナ内のダウンロードリンク */
 .download-action-container a.download-link {
     display: inline-block;
     padding: 10px 15px;
@@ -100,14 +118,13 @@ button:disabled {
     border-radius: 4px;
     font-size: 16px;
     transition: background-color 0.2s;
-    flex-grow: 1; /* 横幅いっぱいに広がる */
+    flex-grow: 1;
     text-align: center;
 }
 .download-action-container a.download-link:hover {
     background-color: #27ae60;
 }
 
-/* 削除ボタンの基本スタイル */
 button.delete-btn {
     padding: 10px 20px;
     background-color: #e74c3c;
@@ -117,7 +134,7 @@ button.delete-btn {
     cursor: pointer;
     font-size: 16px;
     transition: background-color 0.2s;
-    flex-shrink: 0; /* 縮まないようにする */
+    flex-shrink: 0;
 }
 button.delete-btn:hover {
     background-color: #c0392b;

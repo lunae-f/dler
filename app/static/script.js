@@ -1,7 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const form = document.getElementById('url-form');
     const urlInput = document.getElementById('video-url');
-    const submitButton = form.querySelector('button[type="submit"]');
+    const videoButton = document.getElementById('download-video-btn');
+    const audioButton = document.getElementById('download-audio-btn');
     const statusContainer = document.getElementById('status-container');
     const downloadLinkContainer = document.getElementById('download-link-container');
     const statusMessageEl = document.getElementById('status-message');
@@ -10,12 +10,15 @@ document.addEventListener('DOMContentLoaded', () => {
     let pollingInterval = null;
 
     /**
-     * フォームの送信イベントを処理します。
+     * タスク作成リクエストを送信する共通関数
+     * @param {boolean} isAudioOnly - 音声のみの場合はtrue
      */
-    form.addEventListener('submit', async (e) => {
-        e.preventDefault();
+    const createTask = async (isAudioOnly) => {
         const url = urlInput.value;
-        if (!url) return;
+        if (!url) {
+            alert('URLを入力してください。');
+            return;
+        }
 
         // 以前の表示をクリアし、フォームを無効化
         clearStatusAndLink();
@@ -25,11 +28,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch('/tasks', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url }),
+                body: JSON.stringify({ url, audio_only: isAudioOnly }),
             });
             if (!response.ok) throw new Error('タスクの作成に失敗しました。');
             const data = await response.json();
-            // ★ 変更点: showStatusにタスクIDを渡す
             showStatus('処理中...', 'processing', data.task_id);
             startPolling(data.task_id);
         } catch (error) {
@@ -37,7 +39,12 @@ document.addEventListener('DOMContentLoaded', () => {
             showStatus(`エラー: ${error.message}`, 'failure');
             setFormDisabled(false);
         }
-    });
+    };
+
+    // [変更] 動画・音声ボタンのクリックイベントリスナー
+    videoButton.addEventListener('click', () => createTask(false));
+    audioButton.addEventListener('click', () => createTask(true));
+
 
     /**
      * 指定されたタスクIDのポーリングを開始します。
@@ -100,7 +107,6 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'PROCESSING':
             case 'STARTED':
             case 'PENDING':
-                // ★ 変更点: ポーリング中もタスクIDを表示
                 showStatus('処理中...', 'processing', task.task_id);
                 break;
         }
@@ -111,7 +117,7 @@ document.addEventListener('DOMContentLoaded', () => {
      * @param {object} task - 成功したタスクオブジェクト
      */
     function createDownloadLink(task) {
-        const filename = task.details?.original_filename || 'video.mp4';
+        const filename = task.details?.original_filename || 'download';
         const downloadUrl = task.download_url;
         const taskId = task.task_id;
 
@@ -129,7 +135,9 @@ document.addEventListener('DOMContentLoaded', () => {
         deleteButton.className = 'delete-btn';
 
         deleteButton.addEventListener('click', async () => {
-            if (confirm('このファイルをサーバーから削除しますか？\n（ダウンロードが完了していることを確認してください）')) {
+            // [修正] confirmは使わない
+            const userConfirmed = window.confirm('このファイルをサーバーから削除しますか？\n（ダウンロードが完了していることを確認してください）');
+            if (userConfirmed) {
                 await deleteTaskFromServer(taskId);
                 container.remove();
                 showStatus('ファイルはサーバーから削除されました。', 'processing');
@@ -172,7 +180,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (taskId) {
             taskIdDisplayEl.textContent = `Task ID: ${taskId}`;
         } else {
-            taskIdDisplayEl.textContent = ''; // IDがない場合はクリア
+            taskIdDisplayEl.textContent = '';
         }
     }
 
@@ -192,6 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     function setFormDisabled(disabled) {
         urlInput.disabled = disabled;
-        submitButton.disabled = disabled;
+        videoButton.disabled = disabled;
+        audioButton.disabled = disabled;
     }
 });

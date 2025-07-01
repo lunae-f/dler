@@ -10,39 +10,36 @@
 """
 import os
 import shutil
-from fastapi import FastAPI, HTTPException, status, Depends
+from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, HttpUrl
 from celery.result import AsyncResult
 import redis
 
-# --- 依存関係のインポート順を整理 ---
 from logger_config import logger
 from celery_instance import celery_app
 from worker import download_video
 
-# --- 初期化 ---
 app = FastAPI(
     title="DLer API",
     description="yt-dlpで動画をダウンロードするAPI",
-    version="2.2.3" # Version Bump
+    version="3.0.0" # Version Bump
 )
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
-# --- 定数 (ディレクトリ設定) ---
 DOWNLOAD_DIR = "downloads"
 DOWNLOAD_DIR_ABSPATH = os.path.abspath(DOWNLOAD_DIR)
 
+# [変更] audio_onlyフラグを追加
 class TaskRequest(BaseModel):
     url: HttpUrl
+    audio_only: bool = False
 
-# --- ヘルパー関数 ---
 def _get_task_details(task_id: str) -> dict:
-    """タスクIDから詳細な情報を取得するヘルパー関数。"""
     task_result = AsyncResult(task_id, app=celery_app)
     status = task_result.status
     
@@ -54,50 +51,37 @@ def _get_task_details(task_id: str) -> dict:
             response_data['details'] = result
             response_data['download_url'] = f"/files/{task_id}"
         elif status == 'FAILURE':
-            # エラー情報は文字列に変換して格納
             response_data['details'] = str(result)
             
     return response_data
 
-# --- APIエンドポイント ---
-# [修正] async def -> def に変更。ファイルI/Oはブロッキング処理のため。
 @app.get("/", response_class=HTMLResponse, summary="フロントエンドページを表示")
 def read_root():
-    """フロントエンドのメインページ (index.html) を返します。"""
     with open("static/index.html") as f:
         return HTMLResponse(content=f.read(), status_code=200)
 
-# [変更なし] Celeryタスクの起動(.delay)はノンブロッキングなため、async defのままで問題ありません。
 @app.post("/tasks", status_code=status.HTTP_202_ACCEPTED, summary="動画ダウンロードタスクを作成")
 async def create_download_task(request: TaskRequest):
-    """新しい動画ダウンロードタスクを作成します。"""
     original_url = str(request.url)
-    
-    # URLをサニタイズし、'&'以降のパラメータを削除
     sanitized_url = original_url.split('&')[0]
     
-    task = download_video.delay(sanitized_url)
-    logger.info(f"Task {task.id} created for URL: {sanitized_url}")
+    # [変更] audio_onlyフラグをCeleryタスクに渡す
+    task = download_video.delay(sanitized_url, audio_only=request.audio_only)
+    logger.info(f"Task {task.id} created for URL: {sanitized_url} (audio_only={request.audio_only})")
     
     return {"task_id": task.id, "url": sanitized_url}
 
-# [修正] async def -> def に変更。task_result.backendやヘルパー関数内のresult取得がブロッキングの可能性があるため。
 @app.get("/tasks/{task_id}", summary="タスクの状態を取得")
 def get_task_status(task_id: str):
-    """指定されたタスクIDの状態と詳細を取得します。"""
     task_result = AsyncResult(task_id, app=celery_app)
-    # Celeryバックエンドにタスクが存在しない場合も考慮
     if not task_result.backend:
         raise HTTPException(status_code=404, detail="Task not found in the backend.")
         
     task_details = _get_task_details(task_id)
     return JSONResponse(content=task_details)
 
-
-# [修正] async def -> def に変更。task_result.get()やos.path.existsがブロッキング処理のため。
 @app.get("/files/{task_id}", summary="ダウンロードしたファイルを取得")
 def download_file(task_id: str):
-    """ダウンロード済みのファイルを取得します。"""
     task_result = AsyncResult(task_id, app=celery_app)
     if not task_result.successful():
         raise HTTPException(status_code=404, detail="Task not found, or has failed.")
@@ -118,10 +102,8 @@ def download_file(task_id: str):
     original_filename = result.get('original_filename', f'{task_id}.mp4')
     return FileResponse(path=requested_path_abspath, filename=original_filename, media_type='application/octet-stream')
 
-# [修正] async def -> def に変更。os.path.existsやos.removeがブロッキング処理のため。
 @app.delete("/tasks/{task_id}", status_code=status.HTTP_200_OK, summary="個別のタスクと関連ファイルを削除")
 def delete_task(task_id: str):
-    """タスクと関連するダウンロード済みファイルを削除します。"""
     task_result = AsyncResult(task_id, app=celery_app)
 
     if task_result.successful():
