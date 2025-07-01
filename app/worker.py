@@ -49,9 +49,19 @@ def download_video(self: Task, url: str) -> dict:
     
     output_template = DOWNLOAD_DIR / f'{task_id}.%(ext)s'
     
+    # [修正] URLに応じてフォーマットを動的に変更
+    # デフォルトのフォーマット
+    download_format = 'bestvideo+bestaudio/best'
+    
+    # URLがYouTubeのものであるかを確認
+    if "youtube.com" in url or "youtu.be" in url:
+        logger.info(f"[{task_id}] YouTube URL detected. Using specific format for AVC1/MP4A.")
+        # H.264 (AVC) + AAC (MP4A) のフォーマットを指定し、それが利用できない場合はデフォルトにフォールバック
+        download_format = 'bestvideo[vcodec*=avc1]+bestaudio[acodec*=mp4a]/bestvideo+bestaudio/best'
+
     ydl_opts = {
         'outtmpl': str(output_template),
-        'format': 'bestvideo+bestaudio/best',
+        'format': download_format,
         'quiet': True,
         'no_warnings': True,
         'postprocessors': [{
