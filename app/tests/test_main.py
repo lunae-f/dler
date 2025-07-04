@@ -35,6 +35,7 @@ def test_create_download_task(client_and_mocks):
     video_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 
     # WHEN: タスク作成APIをコール
+    # audio_onlyを指定しないリクエストをシミュレート
     response = client.post("/tasks", json={"url": video_url})
 
     # THEN: 正常なレスポンスが返ってくる
@@ -44,7 +45,8 @@ def test_create_download_task(client_and_mocks):
     assert response_data["url"] == video_url
 
     # AND: Celeryタスクが1回呼び出される
-    mock_celery_delay.assert_called_once_with(video_url)
+    # [修正] audio_only=False がデフォルトで渡されることを検証する
+    mock_celery_delay.assert_called_once_with(video_url, audio_only=False)
 
 
 @patch('main.AsyncResult')
